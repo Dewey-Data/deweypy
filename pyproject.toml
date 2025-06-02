@@ -1,0 +1,16 @@
+[project]
+name = "deweypy"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "rich>=14.0.0",
+    "shellingham>=1.5.4",
+    "typer>=0.16.0",
+]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.2.0",
+]
