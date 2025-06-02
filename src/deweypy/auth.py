@@ -1,5 +1,9 @@
-from typing import Literal, Callable
+from __future__ import annotations
+
 import os
+from collections.abc import Callable
+from typing import Literal
+
 from deweypy.context import main_context
 
 

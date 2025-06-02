@@ -1,16 +1,169 @@
+# ==== uv ====
+# https://github.com/astral-sh/uv
+
 [project]
 name = "deweypy"
 version = "0.1.0"
-description = "Add your description here"
+description = "A Python client for Dewey Data (https://deweydata.io/)."
 readme = "README.md"
 requires-python = ">=3.13"
+
 dependencies = [
-    "rich>=14.0.0",
-    "shellingham>=1.5.4",
-    "typer>=0.16.0",
+  "httpx>=0.28.1",
+  "rich>=14.0.0",
+  "shellingham>=1.5.4",
+  "typer>=0.16.0",
 ]
 
 [dependency-groups]
 dev = [
-    "pre-commit>=4.2.0",
+  "coverage>=7.8.2",
+  "ipython>=9.3.0",
+  "mypy>=1.16.0",
+  "pre-commit>=4.2.0",
+  "pytest>=8.3.5",
+  "pytest-cov>=6.1.1",
+  "pytest-mock>=3.14.1",
+  "respx>=0.22.0",
+  "ruff>=0.11.12",
+  "time-machine>=2.16.0",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# ==== coverage ====
+# https://github.com/nedbat/coveragepy
+[tool.coverage.run]
+omit = ["*/tests/*"]
+
+[tool.coverage.report]
+# https://coverage.readthedocs.io/en/latest/config.html#sample-file
+exclude_also = [
+  # Don't complain about missing debug-only code:
+  "def __repr__",
+  "if self\\.debug",
+  # Don't complain if tests don't hit defensive assertion code:
+  "raise AssertionError",
+  "raise NotImplementedError",
+  "raise RuntimeError",
+  # Don't complain if non-runnable code isn't run:
+  "if 0:",
+  "if __name__ == .__main__.:",
+  # Don't complain about abstract methods, they aren't run:
+  "@(abc\\.)?abstractmethod",
+  # Don't complain about type checking blocks:
+  "if TYPE_CHECKING:",
+]
+
+
+# ==== mypy ====
+# https://github.com/python/mypy
+[tool.mypy]
+python_version = "3.13"
+check_untyped_defs = true
+exclude = []
+ignore_missing_imports = true
+local_partial_types = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true
+warn_unreachable = true
+plugins = []
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+# Allow tests to have untyped definitions.
+disallow_untyped_defs = false
+
+
+# ==== pytest ====
+# https://github.com/pytest-dev/pytest
+[tool.pytest.ini_options]
+minversion = "8.3"
+addopts = "--strict-config --strict-markers"
+python_files = ["tests.py", "test_*.py"]
+norecursedirs = [
+  ".cache",
+  ".git",
+  ".mypy_cache",
+  ".pytest_cache",
+  ".ruff_cache",
+  ".venv",
+  "build",
+  "dist",
+  "htmlcov",
+  "node_modules",
+  "venv",
+]
+
+
+# ==== ruff ====
+# https://github.com/astral-sh/ruff
+[tool.ruff]
+exclude = [
+  ".bzr",
+  ".direnv",
+  ".eggs",
+  ".git",
+  ".git-rewrite",
+  ".hg",
+  ".mypy_cache",
+  ".nox",
+  ".pants.d",
+  ".pytype",
+  ".pytest_cache",
+  ".ruff_cache",
+  ".svn",
+  ".tox",
+  ".venv",
+  "__pypackages__",
+  "_build",
+  "buck-out",
+  "build",
+  "dist",
+  "node_modules",
+  "htmlcov",
+  "venv",
+]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+ignore = [
+  "E501",    # Line too long - `ruff format` will handle formatting anyway
+  "COM812",  # Trailing comma missing
+  "PLR2004", # Magic value used in comparison, consider replacing {value} with a constant variable
+  "RUF005",  # Consider {expr} instead of concatenation
+  "RUF012",  # Mutable class attributes should be annotated with `typing.ClassVar`
+  "RUF015",  # Prefer next({iterable}) over single element slice
+  "UP040",   # Type alias `...` uses `TypeAlias` annotation instead of the `type` keyword - `mypy` not supported yet
+]
+per-file-ignores = { "__init__.py" = [
+  "F401", # {name} imported but unused; consider using importlib.util.find_spec to test for availability
+], "**/migrations/*.py" = [
+  "I001", # Import block is un-sorted or un-formatted
+  "I002", # Missing required import
+], "**/test_*.py" = [
+  "PLR0124", # Name compared with itself, consider replacing {left} {} {right}
+  "PLR0915", # Too many statements ({statements} > {max_statements})
+] }
+select = [
+  "F",    # Pyflakes               (F)    - https://docs.astral.sh/ruff/rules/#pyflakes-f
+  "E",    # pycodestyle error      (E)    - https://docs.astral.sh/ruff/rules/#error-e
+  "I",    # isort                  (I)    - https://docs.astral.sh/ruff/rules/#isort-i
+  "UP",   # pyupgrade              (UP)   - https://docs.astral.sh/ruff/rules/#pyupgrade-up
+  "YTT",  # flake8-2020            (YTT)  - https://docs.astral.sh/ruff/rules/#flake8-2020-ytt
+  "B",    # flake8-bugbear         (B)    - https://docs.astral.sh/ruff/rules/#flake8-bugbear-b
+  "C4",   # flake8-comprehensions  (C4)   - https://docs.astral.sh/ruff/rules/#flake8-comprehensions-c4
+  "COM",  # flake8-commas          (COM)  - https://docs.astral.sh/ruff/rules/#flake8-commas-com
+  "T20",  # flake8-print           (T20)  - https://docs.astral.sh/ruff/rules/#flake8-print-t20
+  "SLOT", # flake8-slots           (SLOT) - https://docs.astral.sh/ruff/rules/#flake8-slots-slot
+  "RUF",  # Ruff-specific          (RUF)  - https://docs.astral.sh/ruff/rules/#ruff-specific-rules-ruf
+]
+unfixable = []
+
+[tool.ruff.lint.isort]
+known-first-party = ["deweypy"]
+required-imports = ["from __future__ import annotations"]

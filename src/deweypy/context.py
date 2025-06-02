@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Any, Literal, NoReturn
 from textwrap import dedent
+from typing import Any, Literal, NoReturn
 
 from deweypy.display import ELLIPSIS_CHAR
 
