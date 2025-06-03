@@ -1,13 +1,15 @@
-from typing import cast, Literal
+from __future__ import annotations
+
+from typing import Literal, cast
 
 import typer
-from deweypy.context import set_entrypoint
+from rich import print as rprint
+
 from deweypy.auth import (
     resolve_api_key,
     set_api_key,
 )
-from deweypy.context import main_context
-from rich import print as rprint
+from deweypy.context import main_context, set_entrypoint
 
 app = typer.Typer()
 
@@ -82,8 +84,4 @@ def main(
 
 @app.command()
 def download(dataset: str = typer.Argument(..., help="The dataset to download.")):
-    pass
-
-
-if __name__ == "__main__":
-    typer.run(main)
+    rprint("Hello from `download`!")
