@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import lru_cache
+from pathlib import Path
 from textwrap import dedent
 from typing import Any, Literal, NoReturn
 
@@ -11,19 +12,29 @@ from deweypy.display import ELLIPSIS_CHAR
 @dataclass(kw_only=True)
 class MainContext:
     entrypoint: Literal["cli", "other", "unknown"] = "unknown"
+
     _api_key: str = field(repr=False, default="")
     api_key_source: Literal[
         "cli_args", "cli_fallback", "environment", "manually_set", "unknown"
     ] = "unknown"
     api_key_repr_preview: str = field(init=False, repr=True)
 
+    _download_directory: Path | None = field(default=None)
+    download_directory_repr_preview: str = field(init=False, repr=True)
+    download_directory_source: Literal[
+        "cli_args", "cli_fallback", "environment", "manually_set", "unknown"
+    ] = "unknown"
+
     def __post_init__(self):
         self._set_api_key_repr_preview()
+        self._set_download_directory_repr_preview()
 
     def __setattr__(self, name: str, value: Any):
         parent_return_value = super().__setattr__(name, value)
         if name == "_api_key":
             self._set_api_key_repr_preview()
+        elif name == "_download_directory":
+            self._set_download_directory_repr_preview()
         return parent_return_value
 
     @property
@@ -74,6 +85,54 @@ class MainContext:
             ).strip()
         )
 
+    @property
+    def download_directory(self) -> str:
+        if self._download_directory:
+            return self._download_directory
+        downloads_module = _get_downloads_module()
+        resolved_download_directory = downloads_module.resolve_download_directory(
+            potentially_provided_value=self._download_directory,
+            callback_if_missing=self._missing_download_directory_callback,
+            invalid_exception_class=RuntimeError,
+        )
+        self._download_directory = resolved_download_directory
+        downloads_module.sanity_check_download_directory_value(self._download_directory)
+        return resolved_download_directory
+
+    @download_directory.setter
+    def download_directory(self, value: Path):
+        self._download_directory = value
+        self._set_download_directory_repr_preview()
+
+    def _set_download_directory_repr_preview(self):
+        if self._download_directory in ("", None):
+            self.download_directory_repr_preview = "not_set"
+            return
+        downloads_module = _get_downloads_module()
+        downloads_module.sanity_check_download_directory_value(self._download_directory)
+        preview_value = self._download_directory.as_posix()
+        self.download_directory_repr_preview = preview_value
+
+    @staticmethod
+    def _missing_download_directory_callback() -> NoReturn:
+        raise RuntimeError(
+            dedent(
+                """
+                The Download Directory is not set. You can set it via one of three ways:
+                1. If using `dewepy` directly from the shell/command line, you
+                   can provide the --download-directory option to set it.
+                2. Set the `DEWEY_DOWNLOAD_DIRECTORY` environment variable.
+                3. If using `dewepy` as a Python library/module, you can call
+                   `deweypy.downloads.set_download_directory()` with the
+                   download directory as the argument. For example:
+                   ```
+                   import deweypy.downloads
+                   deweypy.downloads.set_download_directory("your_download_directory_value...")
+                   ```
+                """
+            ).strip()
+        )
+
 
 main_context = MainContext()
 
@@ -87,3 +146,10 @@ def _get_auth_module():
     from deweypy import auth as auth_module
 
     return auth_module
+
+
+@lru_cache(1)
+def _get_downloads_module():
+    from deweypy import downloads as downloads_module
+
+    return downloads_module

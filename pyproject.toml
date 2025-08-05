@@ -139,6 +139,7 @@ ignore = [
   "RUF012",  # Mutable class attributes should be annotated with `typing.ClassVar`
   "RUF015",  # Prefer next({iterable}) over single element slice
   "UP040",   # Type alias `...` uses `TypeAlias` annotation instead of the `type` keyword - `mypy` not supported yet
+  "B008",    # Do not perform function call `...` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
 ]
 per-file-ignores = { "__init__.py" = [
   "F401", # {name} imported but unused; consider using importlib.util.find_spec to test for availability
