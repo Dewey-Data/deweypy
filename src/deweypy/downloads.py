@@ -18,6 +18,15 @@ from httpx._types import (
     TimeoutTypes,
 )
 from rich import print as rprint
+from rich.progress import (
+    BarColumn,
+    DownloadColumn,
+    Progress,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+    TransferSpeedColumn,
+)
 
 from deweypy.context import MainContext, main_context
 
@@ -215,7 +224,35 @@ class DatasetDownloader:
         skip_existing = self.skip_existing
         rprint(f"Skip existing: {skip_existing}")
 
-        with make_client() as client:
+        # Get total files and size from metadata for progress tracking
+        total_files = metadata["total_files"]
+        total_size = metadata["total_size"]
+
+        # Create progress bar
+        progress = Progress(
+            TextColumn("[bold blue]{task.fields[filename]}", justify="right"),
+            BarColumn(bar_width=None),
+            "[progress.percentage]{task.percentage:>3.1f}%",
+            "•",
+            DownloadColumn(),
+            "•",
+            TransferSpeedColumn(),
+            "•",
+            TimeRemainingColumn(),
+            "•",
+            TimeElapsedColumn(),
+        )
+
+        with make_client() as client, progress:
+            # Add overall progress task
+            overall_task = progress.add_task(
+                "Overall Progress", total=total_size, filename="Overall"
+            )
+
+            # Track files processed and bytes downloaded
+            files_processed = 0
+            total_bytes_downloaded = 0
+
             current_page_number: int = 1
             current_overall_record_number: int = 1
             rprint("--- Files ---")
@@ -232,8 +269,10 @@ class DatasetDownloader:
                 for download_link_info in response_data["download_links"]:
                     link: str = download_link_info["link"]
                     original_file_name: str = download_link_info["file_name"]
+                    file_size_bytes: int = download_link_info["file_size_bytes"]
                     new_file_name = original_file_name
                     new_file_path = download_directory / new_file_name
+
                     if new_file_path.exists() and skip_existing:
                         downloaded_file_paths[
                             (current_page_number, current_overall_record_number)
@@ -243,8 +282,21 @@ class DatasetDownloader:
                             new_file_path,
                         )
                         current_overall_record_number += 1
+                        files_processed += 1
+                        total_bytes_downloaded += file_size_bytes
+
+                        # Update progress for skipped file
+                        progress.update(overall_task, advance=file_size_bytes)
+
                         rprint(f"Skipping {original_file_name} -> {new_file_name}...")
                         continue
+
+                    # Add individual file task
+                    file_task = progress.add_task(
+                        f"File {files_processed + 1}/{total_files}",
+                        total=file_size_bytes,
+                        filename=original_file_name,
+                    )
 
                     rprint(f"Downloading {original_file_name} -> {new_file_name}...")
                     with (
@@ -257,7 +309,16 @@ class DatasetDownloader:
                         open(new_file_path, "wb") as f,
                     ):
                         for raw_bytes in r.iter_bytes():
+                            chunk_size = len(raw_bytes)
                             f.write(raw_bytes)
+                            # Update progress bars
+                            progress.update(file_task, advance=chunk_size)
+                            progress.update(overall_task, advance=chunk_size)
+                            total_bytes_downloaded += chunk_size
+
+                    # Remove individual file task when complete
+                    progress.remove_task(file_task)
+
                     rprint(f"Downloaded {original_file_name} -> {new_file_name}...")
                     downloaded_file_paths[
                         (current_page_number, current_overall_record_number)
@@ -267,10 +328,18 @@ class DatasetDownloader:
                         new_file_path,
                     )
                     current_overall_record_number += 1
+                    files_processed += 1
 
                 current_page_number += 1
                 if current_page_number > total_pages:
                     break
+
+            # Show final stats
+            bytes_remaining = total_size - total_bytes_downloaded
+            rprint("\n[bold green]Download Complete![/bold green]")
+            rprint(f"Files processed: {files_processed}/{total_files}")
+            rprint(f"Bytes downloaded: {total_bytes_downloaded:,}")
+            rprint(f"Bytes remaining: {bytes_remaining:,}")
 
         rprint("Data is downloaded!")
 
