@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import cached_property
 from pathlib import Path
+from threading import Lock
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypedDict, cast
 
 import httpx
@@ -185,6 +187,88 @@ class DatasetDownloader:
         # NOTE/TODO: Backend should send Dataset slug.
         return "dataset-slug"
 
+    @property
+    def max_workers(self) -> int:
+        """Calculate optimal number of worker threads based on CPU count."""
+        cpu_count = os.cpu_count() or 1
+        # Use at least 2 * cpu_count threads, but cap at 4 threads maximum
+        return min(4, max(2 * cpu_count, 2))
+
+    def _download_single_file(
+        self,
+        download_info: tuple[str, str, int, Path, int, int],
+        progress: Progress,
+        overall_task,
+        progress_lock: Lock,
+    ) -> tuple[str, str, Path, bool]:
+        """Download a single file with progress tracking.
+
+        Args:
+            download_info: (link, original_file_name, file_size_bytes, new_file_path, page_num, record_num)
+            progress: Rich Progress instance
+            overall_task: Overall progress task ID
+            progress_lock: Thread lock for progress updates
+
+        Returns:
+            (original_file_name, new_file_name, new_file_path, success)
+        """
+        (
+            link,
+            original_file_name,
+            file_size_bytes,
+            new_file_path,
+            page_num,
+            record_num,
+        ) = download_info
+        new_file_name = original_file_name
+
+        # Check if file exists and should be skipped
+        if new_file_path.exists() and self.skip_existing:
+            with progress_lock:
+                progress.update(overall_task, advance=file_size_bytes)
+            return (original_file_name, new_file_name, new_file_path, True)
+
+        # Create individual file task
+        with progress_lock:
+            file_task = progress.add_task(
+                f"Downloading {original_file_name}",
+                total=file_size_bytes,
+                filename=original_file_name,
+            )
+
+        try:
+            # Download the file
+            with make_client() as client:
+                with (
+                    client.stream(
+                        "GET",
+                        link,
+                        follow_redirects=True,
+                        timeout=httpx.Timeout(120.0),
+                    ) as r,
+                    open(new_file_path, "wb") as f,
+                ):
+                    for raw_bytes in r.iter_bytes():
+                        chunk_size = len(raw_bytes)
+                        f.write(raw_bytes)
+                        # Update progress bars (thread-safe)
+                        with progress_lock:
+                            progress.update(file_task, advance=chunk_size)
+                            progress.update(overall_task, advance=chunk_size)
+
+            # Remove individual file task when complete
+            with progress_lock:
+                progress.remove_task(file_task)
+
+            return (original_file_name, new_file_name, new_file_path, True)
+
+        except Exception as e:
+            # Remove individual file task on error
+            with progress_lock:
+                progress.remove_task(file_task)
+            rprint(f"[red]Error downloading {original_file_name}: {e}[/red]")
+            return (original_file_name, new_file_name, new_file_path, False)
+
     def download(self):
         metadata = self.metadata
         rprint(f"Metadata: {metadata}")
@@ -228,6 +312,10 @@ class DatasetDownloader:
         total_files = metadata["total_files"]
         total_size = metadata["total_size"]
 
+        # Calculate optimal number of worker threads
+        max_workers = self.max_workers
+        rprint(f"Using {max_workers} worker threads for downloads")
+
         # Create progress bar
         progress = Progress(
             TextColumn("[bold blue]{task.fields[filename]}", justify="right"),
@@ -243,103 +331,125 @@ class DatasetDownloader:
             TimeElapsedColumn(),
         )
 
-        with make_client() as client, progress:
+        # Thread lock for progress updates
+        progress_lock = Lock()
+
+        # Collect all download tasks first
+        download_tasks: list[tuple[str, str, int, Path, int, int]] = []
+
+        current_page_number: int = 1
+        current_overall_record_number: int = 1
+        rprint("--- Collecting Files ---")
+
+        while True:
+            rprint(f"Fetching page {current_page_number}...")
+            next_query_params = query_params | {"page": current_page_number}
+            data_response = api_request(
+                "GET", f"{self.base_url}/files", params=next_query_params
+            )
+            response_data = data_response.json()
+            total_pages: int = response_data["total_pages"]
+            rprint(f"Fetched page {current_page_number}...")
+
+            for download_link_info in response_data["download_links"]:
+                link: str = download_link_info["link"]
+                original_file_name: str = download_link_info["file_name"]
+                file_size_bytes: int = download_link_info["file_size_bytes"]
+                new_file_name = original_file_name
+                new_file_path = download_directory / new_file_name
+
+                # Add to download tasks
+                download_tasks.append(
+                    (
+                        link,
+                        original_file_name,
+                        file_size_bytes,
+                        new_file_path,
+                        current_page_number,
+                        current_overall_record_number,
+                    )
+                )
+                current_overall_record_number += 1
+
+            current_page_number += 1
+            if current_page_number > total_pages:
+                break
+
+        rprint(f"Collected {len(download_tasks)} files to download")
+
+        # Now download files using thread pool
+        with progress:
             # Add overall progress task
             overall_task = progress.add_task(
                 "Overall Progress", total=total_size, filename="Overall"
             )
 
-            # Track files processed and bytes downloaded
+            # Track results
             files_processed = 0
-            total_bytes_downloaded = 0
+            successful_downloads = 0
+            failed_downloads = 0
 
-            current_page_number: int = 1
-            current_overall_record_number: int = 1
-            rprint("--- Files ---")
-            while True:
-                rprint(f"Fetching page {current_page_number}...")
-                next_query_params = query_params | {"page": current_page_number}
-                data_response = api_request(
-                    "GET", f"{self.base_url}/files", params=next_query_params
-                )
-                response_data = data_response.json()
-                total_pages: int = response_data["total_pages"]
-                rprint(f"Fetched page {current_page_number}...")
+            # Use ThreadPoolExecutor for concurrent downloads
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all download tasks
+                future_to_task = {
+                    executor.submit(
+                        self._download_single_file,
+                        task,
+                        progress,
+                        overall_task,
+                        progress_lock,
+                    ): task
+                    for task in download_tasks
+                }
 
-                for download_link_info in response_data["download_links"]:
-                    link: str = download_link_info["link"]
-                    original_file_name: str = download_link_info["file_name"]
-                    file_size_bytes: int = download_link_info["file_size_bytes"]
-                    new_file_name = original_file_name
-                    new_file_path = download_directory / new_file_name
-
-                    if new_file_path.exists() and skip_existing:
-                        downloaded_file_paths[
-                            (current_page_number, current_overall_record_number)
-                        ] = (
-                            original_file_name,
-                            new_file_name,
-                            new_file_path,
-                        )
-                        current_overall_record_number += 1
-                        files_processed += 1
-                        total_bytes_downloaded += file_size_bytes
-
-                        # Update progress for skipped file
-                        progress.update(overall_task, advance=file_size_bytes)
-
-                        rprint(f"Skipping {original_file_name} -> {new_file_name}...")
-                        continue
-
-                    # Add individual file task
-                    file_task = progress.add_task(
-                        f"File {files_processed + 1}/{total_files}",
-                        total=file_size_bytes,
-                        filename=original_file_name,
-                    )
-
-                    rprint(f"Downloading {original_file_name} -> {new_file_name}...")
-                    with (
-                        client.stream(
-                            "GET",
-                            link,
-                            follow_redirects=True,
-                            timeout=httpx.Timeout(120.0),
-                        ) as r,
-                        open(new_file_path, "wb") as f,
-                    ):
-                        for raw_bytes in r.iter_bytes():
-                            chunk_size = len(raw_bytes)
-                            f.write(raw_bytes)
-                            # Update progress bars
-                            progress.update(file_task, advance=chunk_size)
-                            progress.update(overall_task, advance=chunk_size)
-                            total_bytes_downloaded += chunk_size
-
-                    # Remove individual file task when complete
-                    progress.remove_task(file_task)
-
-                    rprint(f"Downloaded {original_file_name} -> {new_file_name}...")
-                    downloaded_file_paths[
-                        (current_page_number, current_overall_record_number)
-                    ] = (
+                # Process completed downloads
+                for future in as_completed(future_to_task):
+                    task = future_to_task[future]
+                    (
+                        link,
                         original_file_name,
-                        new_file_name,
+                        file_size_bytes,
                         new_file_path,
-                    )
-                    current_overall_record_number += 1
-                    files_processed += 1
+                        page_num,
+                        record_num,
+                    ) = task
 
-                current_page_number += 1
-                if current_page_number > total_pages:
-                    break
+                    try:
+                        result_file_name, result_new_name, result_path, success = (
+                            future.result()
+                        )
 
-            # Show final stats
-            bytes_remaining = total_size - total_bytes_downloaded
+                        # Update tracking
+                        files_processed += 1
+                        if success:
+                            successful_downloads += 1
+                            downloaded_file_paths[(page_num, record_num)] = (
+                                result_file_name,
+                                result_new_name,
+                                result_path,
+                            )
+                            # For successful downloads, bytes are already tracked in _download_single_file
+                        else:
+                            failed_downloads += 1
+
+                    except Exception as e:
+                        failed_downloads += 1
+                        rprint(
+                            f"[red]Unexpected error with {original_file_name}: {e}[/red]"
+                        )
+
+            # Calculate final stats
+            # Note: total_bytes_downloaded is tracked via progress updates, not directly here
+            # We can get it from the progress task if needed
+            bytes_remaining = total_size - progress.tasks[overall_task].completed
+
             rprint("\n[bold green]Download Complete![/bold green]")
             rprint(f"Files processed: {files_processed}/{total_files}")
-            rprint(f"Bytes downloaded: {total_bytes_downloaded:,}")
-            rprint(f"Bytes remaining: {bytes_remaining:,}")
+            rprint(f"Successful downloads: {successful_downloads}")
+            rprint(f"Failed downloads: {failed_downloads}")
+            rprint(f"Bytes downloaded: {int(progress.tasks[overall_task].completed):,}")
+            rprint(f"Bytes remaining: {int(bytes_remaining):,}")
 
         rprint("Data is downloaded!")
 
