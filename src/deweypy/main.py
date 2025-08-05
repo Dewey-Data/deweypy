@@ -88,7 +88,7 @@ def _handle_download_directory_option(
                     "Paste, type, or confirm the download directory you want to "
                     "download files to. Defaults to the current directory."
                 ),
-                hide_input=True,
+                default=".",
             ),
         )
 

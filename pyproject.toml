@@ -10,6 +10,7 @@ requires-python = ">=3.13"
 
 dependencies = [
   "httpx>=0.28.1",
+  "polars>=1.31.0",
   "rich>=14.0.0",
   "shellingham>=1.5.4",
   "typer>=0.16.0",
