@@ -12,7 +12,11 @@ from deweypy.auth import (
     set_api_key,
 )
 from deweypy.context import main_context, set_entrypoint
-from deweypy.downloads import resolve_download_directory, set_download_directory
+from deweypy.downloads import (
+    DatasetDownloader,
+    resolve_download_directory,
+    set_download_directory,
+)
 
 _shared_api_key_option = typer.Option(
     None, "--api-key", help="Your Dewey API Key.", show_default=False
@@ -141,9 +145,17 @@ def main(
 
 
 @app.command()
-def download(dataset: str = typer.Argument(..., help="The dataset to download.")):
+def download(
+    ds_or_folder_id: str = typer.Argument(..., help="Dataset or Folder ID."),
+    partition_key_after: str | None = typer.Option(None, help="Partition key after."),
+    partition_key_before: str | None = typer.Option(None, help="Partition key before."),
+    skip_existing: bool = typer.Option(False, help="Skip existing files?"),
+):
     rprint("Hello from `download`!")
-    api_key = main_context.api_key
-    download_directory = main_context.download_directory
-    rprint(f"api_key={api_key}")
-    rprint(f"download_directory={download_directory}")
+    downloader = DatasetDownloader(
+        ds_or_folder_id,
+        partition_key_after=partition_key_after,
+        partition_key_before=partition_key_before,
+        skip_existing=skip_existing,
+    )
+    downloader.download()

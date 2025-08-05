@@ -86,7 +86,7 @@ class MainContext:
         )
 
     @property
-    def download_directory(self) -> str:
+    def download_directory(self) -> Path:
         if self._download_directory:
             return self._download_directory
         downloads_module = _get_downloads_module()
