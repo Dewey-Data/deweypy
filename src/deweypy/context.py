@@ -71,10 +71,10 @@ class MainContext:
             dedent(
                 """
                 The API Key is not set. You can set it via one of three ways:
-                1. If using `dewepy` directly from the shell/command line, you can
+                1. If using `deweypy` directly from the shell/command line, you can
                    provide the --api-key option to set it.
                 2. Set the `DEWEY_API_KEY` environment variable.
-                3. If using `dewepy` as a Python library/module, you can call
+                3. If using `deweypy` as a Python library/module, you can call
                    `deweypy.auth.set_api_key()` with the API key as the argument.
                    For example:
                    ```
@@ -119,10 +119,10 @@ class MainContext:
             dedent(
                 """
                 The Download Directory is not set. You can set it via one of three ways:
-                1. If using `dewepy` directly from the shell/command line, you
+                1. If using `deweypy` directly from the shell/command line, you
                    can provide the --download-directory option to set it.
                 2. Set the `DEWEY_DOWNLOAD_DIRECTORY` environment variable.
-                3. If using `dewepy` as a Python library/module, you can call
+                3. If using `deweypy` as a Python library/module, you can call
                    `deweypy.downloads.set_download_directory()` with the
                    download directory as the argument. For example:
                    ```
