@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Literal, cast
 
@@ -73,14 +74,18 @@ def _handle_api_key_option(
 
 def _handle_download_directory_option(
     download_directory: str = typer.Option(
-        ".",
+        f".{os.sep}dewey-downloads",
         "--download-directory",
         prompt=(
-            "What directory do you want to download the data to? Defaults to the "
-            "current directory."
+            f"What directory do you want to download the data to? Defaults to the "
+            f".{os.sep}dewey-downloads directory (the dewey-downloads folder within the "
+            "current directory)."
         ),
         confirmation_prompt=True,
-        help="Directory to download the data to. Defaults to the current directory.",
+        help=(
+            "Directory to download the data to. Defaults to the dewey-downloads folder "
+            "within the current directory."
+        ),
         show_default=True,
     ),
 ):
@@ -90,7 +95,8 @@ def _handle_download_directory_option(
             typer.prompt(
                 (
                     "Paste, type, or confirm the download directory you want to "
-                    "download files to. Defaults to the current directory."
+                    "download files to. Defaults to the dewey-downloads folder within "
+                    "the current directory."
                 ),
                 default=".",
             ),

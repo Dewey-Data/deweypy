@@ -9,5 +9,9 @@ wheels/
 # Virtual environments
 .venv
 
+dewey-downloads
+dewey-downloads/
 downloaded-data
 downloaded-data/
+downloads
+downloads/
