@@ -153,6 +153,8 @@ per-file-ignores = { "__init__.py" = [
 ], "**/test_*.py" = [
   "PLR0124", # Name compared with itself, consider replacing {left} {} {right}
   "PLR0915", # Too many statements ({statements} > {max_statements})
+], "**/*.ipynb" = [
+  "T201", # `print` found
 ] }
 select = [
   "F",    # Pyflakes               (F)    - https://docs.astral.sh/ruff/rules/#pyflakes-f
