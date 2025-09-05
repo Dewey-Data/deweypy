@@ -339,7 +339,6 @@ class AsyncDatasetDownloader:
                         work_queue=async_work_queue,
                         overall_queue_key=overall_queue_key,
                         page_fetch_counter=page_fetch_counter,
-                        worker_busy_events=worker_busy_events,
                         all_pages_fetched_event=all_pages_fetched_event,
                     )
                 )
@@ -377,7 +376,6 @@ class AsyncDatasetDownloader:
         work_queue: WorkQueueType,
         overall_queue_key: str,
         page_fetch_counter: dict[int, list[int]],
-        worker_busy_events: dict[int, asyncio.Event],
         all_pages_fetched_event: asyncio.Event,
     ):
         Log = MessageLog
