@@ -32,15 +32,6 @@ def run_speedy_download(
     partition_key_before: str | None = None,
     skip_existing: bool = True,
 ):
-    async def run():
-        downloader = AsyncDatasetDownloader(
-            ds_or_folder_id,
-            partition_key_after=partition_key_after,
-            partition_key_before=partition_key_before,
-            skip_existing=skip_existing,
-        )
-        await downloader.download_all()
-
     found_winloop: bool = False
     found_uvloop: bool = False
     # https://github.com/Vizonex/Winloop?tab=readme-ov-file#how-to-use-winloop-when-uvloop-is-not-available
@@ -71,6 +62,15 @@ def run_speedy_download(
         running_loop = asyncio.get_running_loop()
     except Exception:
         pass
+
+    async def run():
+        downloader = AsyncDatasetDownloader(
+            ds_or_folder_id,
+            partition_key_after=partition_key_after,
+            partition_key_before=partition_key_before,
+            skip_existing=skip_existing,
+        )
+        await downloader.download_all()
 
     if running_loop is None:
         rprint("No running loop found, using `loop_run_fn` to run the coroutine.")

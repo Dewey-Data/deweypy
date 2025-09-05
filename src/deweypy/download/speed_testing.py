@@ -29,12 +29,15 @@ def run_download_speed_test(
     status_codes: list[int] = []
     payload_sizes_bytes: list[int] = []
 
+    total_bytes: int = 0
+    total_seconds: float = 0.0
+
     for run_index in range(1, num_downloads + 1):
         start_perf = time.perf_counter()
         headers: dict[str, str] = {}
         if use_api_key:
             headers["X-API-Key"] = main_context.api_key
-        response = client.get(url, follow_redirects=True)
+        response = client.get(url, follow_redirects=True, headers=headers)
         # Ensure the content is fully loaded into memory before stopping the timer.
         content = response.content
         end_perf = time.perf_counter()
@@ -43,21 +46,34 @@ def run_download_speed_test(
         durations_seconds.append(duration_seconds)
         status_codes.append(response.status_code)
         payload_sizes_bytes.append(len(content))
+        total_bytes += len(content)
+        total_seconds += duration_seconds
+
+        mb_per_s = (
+            (len(content) / 1_000_000.0 / duration_seconds)
+            if duration_seconds > 0
+            else 0.0
+        )
 
         rprint(
-            f"#{run_index}: {duration_seconds * 1000:.2f} ms | status={response.status_code} | bytes={len(content)}"
+            f"#{run_index}: {duration_seconds * 1000:.2f} ms | status={response.status_code} "
+            f"| bytes={len(content)} | {mb_per_s:.2f} MB/s"
         )
 
     avg_seconds = sum(durations_seconds) / len(durations_seconds)
     min_seconds = min(durations_seconds)
     max_seconds = max(durations_seconds)
+    avg_mb_per_s = (
+        (total_bytes / 1_000_000.0 / total_seconds) if total_seconds > 0 else 0.0
+    )
     rprint(
         " ".join(
             [
                 f"n={num_downloads};",
                 f"avg={avg_seconds * 1000:.2f} ms;",
                 f"min={min_seconds * 1000:.2f} ms;",
-                f"max={max_seconds * 1000:.2f} ms",
+                f"max={max_seconds * 1000:.2f} ms;",
+                f"avg={avg_mb_per_s:.2f} MB/s",
             ]
         )
     )

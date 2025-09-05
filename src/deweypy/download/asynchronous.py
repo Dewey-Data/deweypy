@@ -242,6 +242,7 @@ WorkQueueType: TypeAlias = asyncio.Queue[WorkQueueRecordType]
 
 class AsyncDatasetDownloader:
     DEFAULT_NUM_WORKERS: ClassVar[int | Literal["auto"]] = 10
+    DEFAULT_BUFFER_CHUNK_SIZE: ClassVar[int] = 131_072  # ~128KB
 
     def __init__(
         self,
@@ -251,11 +252,17 @@ class AsyncDatasetDownloader:
         partition_key_before: str | None = None,
         skip_existing: bool = True,
         num_workers: int | Literal["auto"] | None = None,
+        buffer_chunk_size: int | None = None,
     ):
         self.identifier = identifier
         self.partition_key_after = partition_key_after
         self.partition_key_before = partition_key_before
         self.skip_existing = skip_existing
+        self.buffer_chunk_size = (
+            self.DEFAULT_BUFFER_CHUNK_SIZE
+            if buffer_chunk_size is None
+            else buffer_chunk_size
+        )
 
         self._num_workers = (
             self.DEFAULT_NUM_WORKERS if num_workers is None else num_workers
@@ -339,47 +346,55 @@ class AsyncDatasetDownloader:
                     logging_thread_stop_event=logging_thread_stop_event,
                 )
 
-        try:
-            async with make_async_client() as client:
-                async with asyncio.TaskGroup() as tg:
-                    logging_work_coroutine = asyncio.to_thread(do_logging_work)
-                    tg.create_task(logging_work_coroutine)
+        _client_for_dewey = make_async_client()
+        _client_for_file_platform = make_async_client()
+        _client_for_file_platform.headers.pop("X-API-Key")
 
+        try:
+            async with (
+                _client_for_dewey as client_for_dewey,
+                _client_for_file_platform as client_for_file_platform,
+                asyncio.TaskGroup() as tg,
+            ):
+                logging_work_coroutine = asyncio.to_thread(do_logging_work)
+                tg.create_task(logging_work_coroutine)
+
+                tg.create_task(
+                    self._download_all(
+                        client=client_for_dewey,
+                        log_queue=logging_async_queue,
+                        work_queue=async_work_queue,
+                        overall_queue_key=overall_queue_key,
+                        page_fetch_counter=page_fetch_counter,
+                        all_pages_fetched_event=all_pages_fetched_event,
+                    )
+                )
+
+                for worker_number in worker_numbers:
                     tg.create_task(
-                        self._download_all(
-                            client=client,
+                        self._do_async_work(
+                            worker_number=worker_number,
+                            client_for_dewey=client_for_dewey,
+                            client_for_file_platform=client_for_file_platform,
                             log_queue=logging_async_queue,
                             work_queue=async_work_queue,
                             overall_queue_key=overall_queue_key,
                             page_fetch_counter=page_fetch_counter,
-                            all_pages_fetched_event=all_pages_fetched_event,
-                        )
-                    )
-
-                    for worker_number in worker_numbers:
-                        tg.create_task(
-                            self._do_async_work(
-                                worker_number=worker_number,
-                                client=client,
-                                log_queue=logging_async_queue,
-                                work_queue=async_work_queue,
-                                overall_queue_key=overall_queue_key,
-                                page_fetch_counter=page_fetch_counter,
-                                busy_event=worker_busy_events[worker_number],
-                                queue_done_event=queue_done_event,
-                            )
-                        )
-
-                    tg.create_task(
-                        self._ensure_all_async_work_done_and_queue_empty(
-                            log_queue=logging_async_queue,
-                            work_queue=async_work_queue,
-                            overall_queue_key=overall_queue_key,
-                            worker_busy_events=worker_busy_events,
-                            all_pages_fetched_event=all_pages_fetched_event,
+                            busy_event=worker_busy_events[worker_number],
                             queue_done_event=queue_done_event,
                         )
                     )
+
+                tg.create_task(
+                    self._ensure_all_async_work_done_and_queue_empty(
+                        log_queue=logging_async_queue,
+                        work_queue=async_work_queue,
+                        overall_queue_key=overall_queue_key,
+                        worker_busy_events=worker_busy_events,
+                        all_pages_fetched_event=all_pages_fetched_event,
+                        queue_done_event=queue_done_event,
+                    )
+                )
         finally:
             logging_thread_stop_event.set()
 
@@ -589,7 +604,8 @@ class AsyncDatasetDownloader:
     async def _download_single_file(
         self,
         *,
-        client: AsyncClientType,
+        client_for_dewey: AsyncClientType,
+        client_for_file_platform: AsyncClientType,
         info: DownloadSingleFileInfo,
         log_queue: TwoColoredAsyncLogQueueType,
         overall_queue_key: str,
@@ -606,6 +622,7 @@ class AsyncDatasetDownloader:
         new_file_path = info.new_file_path
         page_num = info.page_num
         record_num = info.record_num
+
         queue_key = f"p{page_num}-r{record_num}-{link}"
 
         does_new_file_path_already_exist = await new_file_path.exists()
@@ -649,60 +666,110 @@ class AsyncDatasetDownloader:
                     did_skip=True,
                 )
 
-        await log_queue.put(
-            AddProgress(
-                key=queue_key,
-                message=f"Downloading {original_file_name}",
-                total=file_size_bytes,
-                filename=original_file_name,
+        # TODO (Dewey Team): Make sure this is wrapped with retries and exponential
+        # backoff, etc.
+        try:
+            dewey_response = await client_for_dewey.get(
+                link,
+                follow_redirects=False,
+                timeout=httpx.Timeout(60.0),
             )
-        )
+            status_code = dewey_response.status_code
+            if not status_code or status_code < 200 or status_code >= 400:
+                dewey_response.raise_for_status()
+        except Exception as e:
+            raise RuntimeError(f"Error downloading {original_file_name}: {e}") from e
+        if dewey_response.status_code not in (301, 302):
+            raise RuntimeError(
+                "Expecting a 301 or 302 redirect from Dewey at the time of writing."
+            )
+        final_url = dewey_response.headers.get("Location")
+        if not final_url or not isinstance(final_url, str):
+            raise RuntimeError(
+                f"Expected a string URL for the final URL, got {final_url}."
+            )
 
         file_amount_advanced_here: int = 0
         total_amount_advanced_here: int = 0
+        has_progress_started: bool = False
 
         try:
             # TODO (Dewey Team): Make sure this is wrapped with retries and exponential
             # backoff, etc.
             async with (
-                client.stream(
+                client_for_file_platform.stream(
                     "GET",
                     link,
-                    follow_redirects=True,
-                    timeout=httpx.Timeout(180.0),
+                    follow_redirects=False,
+                    timeout=httpx.Timeout(300.0),
                 ) as r,
                 aiofiles.open(new_file_path, "wb") as f,
             ):
-                async for raw_bytes in r.aiter_bytes():
-                    chunk_size = len(raw_bytes)
+                async for raw_bytes in r.aiter_bytes(chunk_size=self.buffer_chunk_size):
+                    bytes_downloaded_so_far = r.num_bytes_downloaded
+
+                    if not has_progress_started:
+                        total_file_size_bytes_to_use_here: int = file_size_bytes
+                        # Get the Content-Length header from the response.
+                        if raw_content_length := r.headers.get("Content-Length"):
+                            try:
+                                total_file_size_bytes_to_use_here = int(
+                                    raw_content_length
+                                )
+                            except (TypeError, ValueError, OverflowError):
+                                pass
+                        await log_queue.put(
+                            AddProgress(
+                                key=queue_key,
+                                message=f"Downloading {original_file_name}",
+                                total=total_file_size_bytes_to_use_here,
+                                filename=original_file_name,
+                            )
+                        )
+                        has_progress_started = True
+
                     await f.write(raw_bytes)
-                    await log_queue.put(
-                        UpdateProgress(key=queue_key, advance=chunk_size)
+
+                    file_advanced: int = (
+                        bytes_downloaded_so_far - file_amount_advanced_here
                     )
-                    file_amount_advanced_here += chunk_size
                     await log_queue.put(
-                        UpdateProgress(key=overall_queue_key, advance=chunk_size)
+                        UpdateProgress(key=queue_key, advance=file_advanced)
                     )
-                    total_amount_advanced_here += chunk_size
+                    file_amount_advanced_here += file_advanced
+
+                    total_advanced: int = (
+                        bytes_downloaded_so_far - total_amount_advanced_here
+                    )
+                    await log_queue.put(
+                        UpdateProgress(key=overall_queue_key, advance=total_advanced)
+                    )
+                    total_amount_advanced_here += total_advanced
         except Exception as e:
             await log_queue.put(
                 Log(f"[red]Error downloading {original_file_name}: {e}[/red]")
             )
-            await log_queue.put(
-                UpdateProgress(key=queue_key, advance=-1 * file_amount_advanced_here)
-            )
+            if has_progress_started:
+                await log_queue.put(
+                    UpdateProgress(
+                        key=queue_key, advance=-1 * file_amount_advanced_here
+                    )
+                )
             await log_queue.put(
                 UpdateProgress(
                     key=overall_queue_key, advance=-1 * total_amount_advanced_here
                 )
             )
+            if has_progress_started:
+                await log_queue.put(RemoveProgress(key=queue_key))
             # TODO (Dewey Team): Make sure other stuff is wrapped with retries and
             # exponential backoff, etc.
             raise RuntimeError(f"Error downloading {original_file_name}: {e}") from e
         else:
             page_fetch_counter[page_num].append(record_num)
         finally:
-            await log_queue.put(RemoveProgress(key=queue_key))
+            if has_progress_started:
+                await log_queue.put(RemoveProgress(key=queue_key))
 
         return DownloadSingleFileResult(
             original_file_name=original_file_name,
@@ -715,7 +782,8 @@ class AsyncDatasetDownloader:
         self,
         *,
         worker_number: int,
-        client: AsyncClientType,
+        client_for_dewey: AsyncClientType,
+        client_for_file_platform: AsyncClientType,
         log_queue: TwoColoredAsyncLogQueueType,
         work_queue: WorkQueueType,
         overall_queue_key: str,
@@ -766,7 +834,8 @@ class AsyncDatasetDownloader:
                 case MessageFetchFile(info=info):
                     try:
                         await self._download_single_file(
-                            client=client,
+                            client_for_dewey=client_for_dewey,
+                            client_for_file_platform=client_for_file_platform,
                             info=info,
                             log_queue=log_queue,
                             overall_queue_key=overall_queue_key,
