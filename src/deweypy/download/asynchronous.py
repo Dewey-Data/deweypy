@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import nullcontext
 from os import stat_result
 from typing import (
     TYPE_CHECKING,
@@ -97,12 +98,13 @@ async def async_api_request(
         **(headers or {}),  # type: ignore[dict-item]
     }
 
-    client_to_use = (
-        httpx.AsyncClient(
+    _client_to_use = (
+        make_async_client(
+            headers=headers_to_use,
             cookies=cookies,
             proxy=proxy,
-            verify=verify,
             timeout=timeout_to_use,
+            verify=verify,
             trust_env=trust_env,
             http2=True,
         )
@@ -110,20 +112,24 @@ async def async_api_request(
         else client
     )
 
-    response = await client_to_use.request(
-        method,
-        url,
-        params=params,
-        content=content,
-        data=data,
-        files=files,
-        json=json,
-        headers=headers_to_use,
-        cookies=cookies,
-        auth=auth,
-        follow_redirects=follow_redirects,
-        **kwargs,
-    )
+    async with (
+        _client_to_use if client is None else nullcontext(client)
+    ) as client_to_use:
+        response = await client_to_use.request(
+            method,
+            url,
+            params=params,
+            content=content,
+            data=data,
+            files=files,
+            json=json,
+            headers=headers_to_use,
+            cookies=cookies,
+            auth=auth,
+            follow_redirects=follow_redirects,
+            **kwargs,
+        )
+
     response.raise_for_status()
 
     return response
@@ -543,6 +549,8 @@ class AsyncDatasetDownloader:
             Log(f"[green]All pages {total_pages}/{total_pages} fetched[/green].")
         )
 
+        all_pages_fetched_event.set()
+
     async def _download_single_file(
         self,
         *,
@@ -708,15 +716,23 @@ class AsyncDatasetDownloader:
 
             match entry:
                 case MessageFetchFile(info=info):
-                    await self._download_single_file(
-                        client=client,
-                        info=info,
-                        log_queue=log_queue,
-                        overall_queue_key=overall_queue_key,
-                        page_fetch_counter=page_fetch_counter,
-                    )
+                    try:
+                        await self._download_single_file(
+                            client=client,
+                            info=info,
+                            log_queue=log_queue,
+                            overall_queue_key=overall_queue_key,
+                            page_fetch_counter=page_fetch_counter,
+                        )
+                    finally:
+                        work_queue.task_done()
                 case _:
-                    await log_queue.put(Log(f"[red]Unexpected message: {entry}[/red]"))  # type: ignore[unreachable]
+                    try:
+                        await log_queue.put(  # type: ignore[unreachable]
+                            Log(f"[red]Unexpected message: {entry}[/red]")
+                        )
+                    finally:
+                        work_queue.task_done()
 
         await log_queue.put(
             Log(f"[green]Async worker number {worker_number} done.[/green]")
