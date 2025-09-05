@@ -327,8 +327,8 @@ class AsyncDatasetDownloader:
                 overall_queue_key=overall_queue_key,
             )
 
-        async with asyncio.TaskGroup() as tg:
-            async with make_async_client() as client:
+        async with make_async_client() as client:
+            async with asyncio.TaskGroup() as tg:
                 logging_work_coroutine = asyncio.to_thread(do_logging_work)
                 tg.create_task(logging_work_coroutine)
 

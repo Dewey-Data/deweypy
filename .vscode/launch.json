@@ -12,7 +12,10 @@
       "args": [
         "speedy-download",
         "cdst_69nriiuzp96tjqie"
-      ]
+      ],
+      "env": {
+        "DEWEY_SPEEDY_DEBUG": "True"
+      }
     }
   ]
 }
