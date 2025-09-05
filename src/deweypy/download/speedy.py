@@ -25,15 +25,6 @@ if SHOULD_DEBUG_SPEEDY:
     logging.basicConfig(level=logging.DEBUG)
 
 
-CAN_USE_KLOOP: bool = os.getenv("DEWEY_SPEEDY_CAN_USE_KLOOP") in (
-    True,
-    "True",
-    "true",
-    1,
-    "1",
-)
-
-
 def run_speedy_download(
     ds_or_folder_id: str,
     *,
@@ -52,7 +43,6 @@ def run_speedy_download(
 
     found_winloop: bool = False
     found_uvloop: bool = False
-    found_kloop: bool = False
     # https://github.com/Vizonex/Winloop?tab=readme-ov-file#how-to-use-winloop-when-uvloop-is-not-available
     if sys.platform in ("win32", "cygwin", "cli"):
         try:
@@ -75,14 +65,6 @@ def run_speedy_download(
         except ImportError:
             # Otherwise, fall back to `asyncio` `run.`
             from asyncio import run as loop_run_fn
-
-        if CAN_USE_KLOOP:
-            try:
-                from kloop import run as loop_run_fn
-
-                found_kloop = True
-            except ImportError:
-                pass
 
     running_loop = None
     try:
