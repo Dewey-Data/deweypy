@@ -213,18 +213,19 @@ class MessageFetchFile:
     info: DownloadSingleFileInfo
 
 
-QueueRecordType: TypeAlias = (
+LogQueueRecordType: TypeAlias = (
     MessageProgressAddTask
     | MessageProgressUpdateTask
     | MessageProgressRemoveTask
     | MessageLog
     | MessageWorkDone
-    | MessageFetchFile
 )
+TwoColoredLogQueueType: TypeAlias = TwoColoredQueue[LogQueueRecordType]
+TwoColoredAsyncLogQueueType: TypeAlias = TwoColoredAsyncQueue[LogQueueRecordType]
+TwoColoredSyncLogQueueType: TypeAlias = TwoColoredSyncQueue[LogQueueRecordType]
 
-TwoColoredQueueType: TypeAlias = TwoColoredQueue[QueueRecordType]
-TwoColoredAsyncQueueType: TypeAlias = TwoColoredAsyncQueue[QueueRecordType]
-TwoColoredSyncQueueType: TypeAlias = TwoColoredSyncQueue[QueueRecordType]
+WorkQueueRecordType: TypeAlias = MessageFetchFile
+WorkQueueType: TypeAlias = asyncio.Queue[WorkQueueRecordType]
 
 
 class AsyncDatasetDownloader:
@@ -281,9 +282,10 @@ class AsyncDatasetDownloader:
         return "dataset-slug"
 
     async def download_all(self):
-        queue: TwoColoredQueueType = TwoColoredQueue()
-        async_queue: TwoColoredAsyncQueueType = queue.async_q
-        sync_queue: TwoColoredSyncQueueType = queue.sync_q
+        log_queue: TwoColoredLogQueueType = TwoColoredQueue()
+        logging_async_queue: TwoColoredAsyncLogQueueType = log_queue.async_q
+        logging_sync_queue: TwoColoredSyncLogQueueType = log_queue.sync_q
+        async_work_queue: WorkQueueType = asyncio.Queue()
         overall_queue_key = "overall"
 
         progress = Progress(
@@ -314,7 +316,7 @@ class AsyncDatasetDownloader:
 
         def do_logging_work():
             return self._do_logging_work(
-                queue=sync_queue,
+                queue=logging_sync_queue,
                 progress=progress,
                 overall_queue_key=overall_queue_key,
             )
@@ -326,7 +328,8 @@ class AsyncDatasetDownloader:
             tg.create_task(
                 self._download_all(
                     client=client,
-                    queue=async_queue,
+                    log_queue=logging_async_queue,
+                    work_queue=async_work_queue,
                     overall_queue_key=overall_queue_key,
                     page_fetch_counter=page_fetch_counter,
                     worker_busy_events=worker_busy_events,
@@ -339,7 +342,8 @@ class AsyncDatasetDownloader:
                     self._do_async_work(
                         worker_number=worker_number,
                         client=client,
-                        queue=async_queue,
+                        log_queue=logging_async_queue,
+                        work_queue=async_work_queue,
                         overall_queue_key=overall_queue_key,
                         page_fetch_counter=page_fetch_counter,
                         busy_event=worker_busy_events[worker_number],
@@ -349,7 +353,8 @@ class AsyncDatasetDownloader:
 
             tg.create_task(
                 self._ensure_all_async_work_done_and_queue_empty(
-                    queue=async_queue,
+                    log_queue=logging_async_queue,
+                    work_queue=async_work_queue,
                     worker_busy_events=worker_busy_events,
                     all_pages_fetched_event=all_pages_fetched_event,
                     queue_done_event=queue_done_event,
@@ -360,7 +365,8 @@ class AsyncDatasetDownloader:
         self,
         *,
         client: httpx.AsyncClient,
-        queue: TwoColoredAsyncQueueType,
+        log_queue: TwoColoredAsyncLogQueueType,
+        work_queue: WorkQueueType,
         overall_queue_key: str,
         page_fetch_counter: dict[int, list[int]],
         worker_busy_events: dict[int, asyncio.Event],
@@ -369,30 +375,34 @@ class AsyncDatasetDownloader:
         Log = MessageLog
 
         metadata = await self.metadata
-        await queue.put(Log(f"Metadata: {metadata}"))
+        await log_queue.put(Log(f"Metadata: {metadata}"))
 
         partition_column = metadata["partition_column"]
-        await queue.put(Log(f"Partition column: {partition_column}"))
+        await log_queue.put(Log(f"Partition column: {partition_column}"))
 
         partition_aggregation = metadata["partition_aggregation"]
-        await queue.put(Log(f"Partition aggregation: {partition_aggregation}"))
+        await log_queue.put(Log(f"Partition aggregation: {partition_aggregation}"))
 
-        await queue.put(Log(f"API Key: {main_context.api_key_repr_preview}"))
+        await log_queue.put(Log(f"API Key: {main_context.api_key_repr_preview}"))
 
         _root_path = self.context.download_directory
         _download_directory = _root_path / self.sub_folder_path_str
         download_directory = AsyncPath(_download_directory)
         if not await download_directory.exists():
-            await queue.put(Log(f"Creating download directory {download_directory}..."))
+            await log_queue.put(
+                Log(f"Creating download directory {download_directory}...")
+            )
             await download_directory.mkdir(parents=True)
-            await queue.put(Log(f"Created download directory {download_directory}..."))
+            await log_queue.put(
+                Log(f"Created download directory {download_directory}...")
+            )
 
-        await queue.put(Log(f"Downloading to {download_directory}..."))
+        await log_queue.put(Log(f"Downloading to {download_directory}..."))
 
         base_endpoint = (
             f"https://api.deweydata.io/api/v1/external/data/{self.identifier}"
         )
-        await queue.put(Log(f"Base endpoint: {base_endpoint}"))
+        await log_queue.put(Log(f"Base endpoint: {base_endpoint}"))
 
         partition_key_after = self.partition_key_after
         partition_key_before = self.partition_key_before
@@ -401,19 +411,19 @@ class AsyncDatasetDownloader:
             query_params["partition_key_after"] = partition_key_after
         if partition_key_before:
             query_params["partition_key_before"] = partition_key_before
-        await queue.put(Log(f"Base query params: {query_params}"))
+        await log_queue.put(Log(f"Base query params: {query_params}"))
 
         skip_existing = self.skip_existing
-        await queue.put(Log(f"Skip existing: {skip_existing}"))
+        await log_queue.put(Log(f"Skip existing: {skip_existing}"))
 
         total_files = metadata["total_files"]
-        await queue.put(Log(f"Total files: {total_files}"))
+        await log_queue.put(Log(f"Total files: {total_files}"))
 
         total_size = metadata["total_size"]
-        await queue.put(Log(f"Total size: {total_size}"))
+        await log_queue.put(Log(f"Total size: {total_size}"))
 
         num_workers = self.num_workers
-        await queue.put(Log(f"Using {num_workers} async workers for downloads"))
+        await log_queue.put(Log(f"Using {num_workers} async workers for downloads"))
 
         current_page_number: int = 1
         current_overall_record_number: int = 1
@@ -456,12 +466,12 @@ class AsyncDatasetDownloader:
                 if not record_nums_needing_fetch:
                     del needing_fetch[page_needing_fetch]
                     del fetched[page_needing_fetch]
-                    await queue.put(
+                    await log_queue.put(
                         Log(f"Page {page_needing_fetch} marked as fully downloaded.")
                     )
 
         while True:
-            await queue.put(Log(f"Fetching page {current_page_number}..."))
+            await log_queue.put(Log(f"Fetching page {current_page_number}..."))
 
             next_query_params = query_params | {"page": current_page_number}
             # TODO (Dewey Team): Make sure this is wrapped with retries and exponential
@@ -497,7 +507,7 @@ class AsyncDatasetDownloader:
                 new_file_name = original_file_name
                 new_file_path = AsyncPath(_download_directory / new_file_name)
 
-                await queue.put(
+                await work_queue.put(
                     MessageFetchFile(
                         info=DownloadSingleFileInfo(
                             link=link,
@@ -528,7 +538,7 @@ class AsyncDatasetDownloader:
 
                 break
 
-        await queue.put(
+        await log_queue.put(
             Log(f"[green]All pages {total_pages}/{total_pages} fetched[/green].")
         )
 
@@ -537,7 +547,8 @@ class AsyncDatasetDownloader:
         *,
         client: httpx.AsyncClient,
         info: DownloadSingleFileInfo,
-        queue: TwoColoredAsyncQueueType,
+        log_queue: TwoColoredAsyncLogQueueType,
+        work_queue: WorkQueueType,
         overall_queue_key: str,
         page_fetch_counter: dict[int, list[int]],
     ) -> DownloadSingleFileResult:
@@ -560,7 +571,7 @@ class AsyncDatasetDownloader:
             existing_file_stats = cast(stat_result, existing_file_stats)
             file_size_bytes_from_existing_file = existing_file_stats.st_size
             if file_size_bytes_from_existing_file != file_size_bytes:
-                await queue.put(
+                await log_queue.put(
                     Log(
                         f"[yellow](page_num={page_num}, record_num={record_num}) File size "
                         f"did not match for file (so re-downloading): "
@@ -580,7 +591,7 @@ class AsyncDatasetDownloader:
                     did_skip=True,
                 )
 
-        await queue.put(
+        await log_queue.put(
             AddProgress(
                 key=queue_key,
                 message=f"Downloading {original_file_name}",
@@ -607,22 +618,24 @@ class AsyncDatasetDownloader:
                 async for raw_bytes in r.aiter_bytes():
                     chunk_size = len(raw_bytes)
                     await f.write(raw_bytes)
-                    await queue.put(UpdateProgress(key=queue_key, advance=chunk_size))
+                    await log_queue.put(
+                        UpdateProgress(key=queue_key, advance=chunk_size)
+                    )
                     file_amount_advanced_here += chunk_size
-                    await queue.put(
+                    await log_queue.put(
                         UpdateProgress(key=overall_queue_key, advance=chunk_size)
                     )
                     total_amount_advanced_here += chunk_size
         except Exception as e:
-            await queue.put(
+            await log_queue.put(
                 Log(f"[red]Error downloading {original_file_name}: {e}[/red]")
             )
-            await queue.put(
+            await log_queue.put(
                 UpdateProgress(
                     key=overall_queue_key, advance=-1 * file_amount_advanced_here
                 )
             )
-            await queue.put(
+            await log_queue.put(
                 UpdateProgress(
                     key=overall_queue_key, advance=-1 * total_amount_advanced_here
                 )
@@ -633,7 +646,7 @@ class AsyncDatasetDownloader:
         else:
             page_fetch_counter[page_num].append(record_num)
         finally:
-            await queue.put(RemoveProgress(key=queue_key))
+            await log_queue.put(RemoveProgress(key=queue_key))
 
         return DownloadSingleFileResult(
             original_file_name=original_file_name,
@@ -647,7 +660,8 @@ class AsyncDatasetDownloader:
         *,
         worker_number: int,
         client: httpx.AsyncClient,
-        queue: TwoColoredAsyncQueueType,
+        log_queue: TwoColoredAsyncLogQueueType,
+        work_queue: WorkQueueType,
         overall_queue_key: str,
         page_fetch_counter: dict[int, list[int]],
         busy_event: asyncio.Event,
@@ -660,12 +674,12 @@ class AsyncDatasetDownloader:
 
         consecutive_empty_entries: int = 0
 
-        await queue.put(Log(f"Async worker number {worker_number} started."))
+        await log_queue.put(Log(f"Async worker number {worker_number} started."))
 
         while True:
             entry = None
             try:
-                entry = queue.get_nowait()
+                entry = work_queue.get_nowait()
             except QueueEmpty:
                 pass
             else:
@@ -697,21 +711,23 @@ class AsyncDatasetDownloader:
                     await self._download_single_file(
                         client=client,
                         info=info,
-                        queue=queue,
+                        log_queue=log_queue,
+                        work_queue=work_queue,
                         overall_queue_key=overall_queue_key,
                         page_fetch_counter=page_fetch_counter,
                     )
                 case _:
-                    await queue.put(Log(f"[red]Unexpected message: {entry}[/red]"))
+                    await log_queue.put(Log(f"[red]Unexpected message: {entry}[/red]"))  # type: ignore[unreachable]
 
-        await queue.put(
+        await log_queue.put(
             Log(f"[green]Async worker number {worker_number} done.[/green]")
         )
 
     async def _ensure_all_async_work_done_and_queue_empty(
         self,
         *,
-        queue: TwoColoredAsyncQueueType,
+        log_queue: TwoColoredAsyncLogQueueType,
+        work_queue: WorkQueueType,
         worker_busy_events: dict[int, asyncio.Event],
         all_pages_fetched_event: asyncio.Event,
         queue_done_event: asyncio.Event,
@@ -727,17 +743,15 @@ class AsyncDatasetDownloader:
         # Finally, we'll wait for the queue to be empty for at least
         # `ensure_queue_empty_for_at_least_seconds`.
         while True:
-            # Wait for the queue to be empty.
-            await queue.join()
+            # Wait for the work queue to be empty.
+            await work_queue.join()
 
             # Wait half the `ensure_queue_empty_for_at_least_seconds` time.
             elapsed: float = 0.0
             await asyncio.sleep(ensure_queue_empty_for_at_least_seconds / 2)
             elapsed += ensure_queue_empty_for_at_least_seconds / 2
-            try:
-                queue.peek_nowait()
-            except QueueEmpty:
-                # If the queue is empty, then we'll keep going.
+            # If the queue is empty, then we'll keep going.
+            if work_queue.empty():
                 pass
             else:
                 # Otherwise, we go back to the start of the loop.
@@ -747,10 +761,8 @@ class AsyncDatasetDownloader:
             # time.
             await asyncio.sleep(ensure_queue_empty_for_at_least_seconds / 2)
             elapsed += ensure_queue_empty_for_at_least_seconds / 2
-            try:
-                queue.peek_nowait()
-            except QueueEmpty:
-                # If the queue is empty, then we're done.
+            # If the queue is empty, then we're done.
+            if work_queue.empty():
                 break
             else:
                 # Otherwise, we go back to the start of the loop.
@@ -783,12 +795,15 @@ class AsyncDatasetDownloader:
 
         # Put the `MessageWorkDone(...)` message into the queue to tell the logging
         # thread (and any other threads down the line if needed) that the work is done.
-        await queue.put(MessageWorkDone())
+        await log_queue.put(MessageWorkDone())
+
+        # Finally, wait for the logging queue to be empty.
+        await log_queue.join()
 
     def _do_logging_work(
         self,
         *,
-        queue: TwoColoredSyncQueueType,
+        queue: TwoColoredSyncLogQueueType,
         progress: Progress,
         overall_queue_key: str,
     ) -> None:
