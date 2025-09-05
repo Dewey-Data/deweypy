@@ -523,7 +523,7 @@ class AsyncDatasetDownloader:
 
             page_to_records_needing_fetch.setdefault(current_page_number, set())
             _current_overall_record_number = current_overall_record_number
-            for __ in batch:
+            for __ in batch["download_links"]:
                 page_to_records_needing_fetch[current_page_number].add(
                     _current_overall_record_number
                 )
@@ -531,6 +531,8 @@ class AsyncDatasetDownloader:
             del _current_overall_record_number
 
             page_fetch_counter[current_page_number] = []
+
+            await log_queue.put(Log(f"Fetched page {current_page_number}..."))
 
             for raw_link_info in batch["download_links"]:
                 link = raw_link_info["link"]
