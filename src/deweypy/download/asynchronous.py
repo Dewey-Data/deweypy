@@ -38,6 +38,7 @@ from httpx._types import (
     RequestFiles,
     TimeoutTypes,
 )
+from httpx_aiohttp import HttpxAiohttpClient
 from rich import print as rprint
 from rich.progress import (
     BarColumn,
@@ -62,6 +63,10 @@ if TYPE_CHECKING:
     import ssl  # pragma: no cover
 
 
+AsyncClient = HttpxAiohttpClient
+AsyncClientType: TypeAlias = HttpxAiohttpClient | httpx.AsyncClient
+
+
 async def async_api_request(
     method: APIMethod,
     path: str,
@@ -79,7 +84,7 @@ async def async_api_request(
     follow_redirects: bool = False,
     verify: ssl.SSLContext | str | bool = True,
     trust_env: bool = True,
-    client: httpx.AsyncClient | None = None,
+    client: AsyncClientType | None = None,
     **kwargs: Any,
 ) -> httpx.Response:
     assert path.startswith("/"), "Current pre-condition"
@@ -146,7 +151,7 @@ def make_async_client(
     trust_env: bool = True,
     http2: bool = True,
     **kwargs: Any,
-) -> httpx.AsyncClient:
+) -> AsyncClientType:
     timeout_to_use = timeout if timeout is not None else httpx.Timeout(30.0)
     headers_to_use: dict[str, str] = {
         # NOTE/TODO: Once we have this versioned, we can include more info on
@@ -156,7 +161,7 @@ def make_async_client(
         **(headers or {}),  # type: ignore[dict-item]
     }
 
-    return httpx.AsyncClient(
+    return AsyncClient(
         cookies=cookies,
         proxy=proxy,
         verify=verify,
@@ -381,7 +386,7 @@ class AsyncDatasetDownloader:
     async def _download_all(
         self,
         *,
-        client: httpx.AsyncClient,
+        client: AsyncClientType,
         log_queue: TwoColoredAsyncLogQueueType,
         work_queue: WorkQueueType,
         overall_queue_key: str,
@@ -584,7 +589,7 @@ class AsyncDatasetDownloader:
     async def _download_single_file(
         self,
         *,
-        client: httpx.AsyncClient,
+        client: AsyncClientType,
         info: DownloadSingleFileInfo,
         log_queue: TwoColoredAsyncLogQueueType,
         overall_queue_key: str,
@@ -710,7 +715,7 @@ class AsyncDatasetDownloader:
         self,
         *,
         worker_number: int,
-        client: httpx.AsyncClient,
+        client: AsyncClientType,
         log_queue: TwoColoredAsyncLogQueueType,
         work_queue: WorkQueueType,
         overall_queue_key: str,
