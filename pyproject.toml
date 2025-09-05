@@ -3,7 +3,7 @@
 
 [project]
 name = "deweypy"
-version = "0.1.0"
+version = "0.1.0a1"
 description = "A Python client for Dewey Data (https://deweydata.io/)."
 readme = "README.md"
 requires-python = ">=3.13"
@@ -32,6 +32,7 @@ dev = [
   "ipython>=9.3.0",
   "mypy>=1.16.0",
   "notebook>=7.4.5",
+  "pandas[pyarrow]>=2.3.2",
   "polars[pyarrow]>=1.33.0",
   "pre-commit>=4.2.0",
   "pytest>=8.3.5",
