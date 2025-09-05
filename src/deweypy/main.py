@@ -157,7 +157,7 @@ def download(
     ds_or_folder_id: str = typer.Argument(..., help="Dataset or Folder ID."),
     partition_key_after: str | None = typer.Option(None, help="Partition key after."),
     partition_key_before: str | None = typer.Option(None, help="Partition key before."),
-    skip_existing: bool = typer.Option(False, help="Skip existing files?"),
+    skip_existing: bool = typer.Option(True, help="Skip existing files?"),
 ):
     rprint("Hello from `download`!")
 
@@ -175,7 +175,7 @@ def speedy_download(
     ds_or_folder_id: str = typer.Argument(..., help="Dataset or Folder ID."),
     partition_key_after: str | None = typer.Option(None, help="Partition key after."),
     partition_key_before: str | None = typer.Option(None, help="Partition key before."),
-    skip_existing: bool = typer.Option(False, help="Skip existing files?"),
+    skip_existing: bool = typer.Option(True, help="Skip existing files?"),
 ):
     rprint("Hello from `speedy_download`!")
 

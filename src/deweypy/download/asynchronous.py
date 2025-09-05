@@ -306,51 +306,68 @@ class AsyncDatasetDownloader:
         all_pages_fetched_event = asyncio.Event()
         queue_done_event = asyncio.Event()
 
+        progress = Progress(
+            TextColumn("[bold blue]{task.fields[filename]}", justify="right"),
+            BarColumn(bar_width=None),
+            "[progress.percentage]{task.percentage:>3.1f}%",
+            "•",
+            DownloadColumn(),
+            "•",
+            TransferSpeedColumn(),
+            "•",
+            TimeRemainingColumn(),
+            "•",
+            TimeElapsedColumn(),
+        )
+
         def do_logging_work():
             return self._do_logging_work(
-                queue=logging_sync_queue, overall_queue_key=overall_queue_key
+                queue=logging_sync_queue,
+                overall_queue_key=overall_queue_key,
+                progress=progress,
             )
 
-        async with make_async_client() as client:
-            async with asyncio.TaskGroup() as tg:
-                logging_work_coroutine = asyncio.to_thread(do_logging_work)
-                tg.create_task(logging_work_coroutine)
+        with progress:
+            async with make_async_client() as client:
+                async with asyncio.TaskGroup() as tg:
+                    logging_work_coroutine = asyncio.to_thread(do_logging_work)
+                    tg.create_task(logging_work_coroutine)
 
-                tg.create_task(
-                    self._download_all(
-                        client=client,
-                        log_queue=logging_async_queue,
-                        work_queue=async_work_queue,
-                        overall_queue_key=overall_queue_key,
-                        page_fetch_counter=page_fetch_counter,
-                        all_pages_fetched_event=all_pages_fetched_event,
-                    )
-                )
-
-                for worker_number in worker_numbers:
                     tg.create_task(
-                        self._do_async_work(
-                            worker_number=worker_number,
+                        self._download_all(
                             client=client,
                             log_queue=logging_async_queue,
                             work_queue=async_work_queue,
                             overall_queue_key=overall_queue_key,
                             page_fetch_counter=page_fetch_counter,
-                            busy_event=worker_busy_events[worker_number],
-                            queue_done_event=queue_done_event,
+                            all_pages_fetched_event=all_pages_fetched_event,
                         )
                     )
 
-                tg.create_task(
-                    self._ensure_all_async_work_done_and_queue_empty(
-                        log_queue=logging_async_queue,
-                        work_queue=async_work_queue,
-                        overall_queue_key=overall_queue_key,
-                        worker_busy_events=worker_busy_events,
-                        all_pages_fetched_event=all_pages_fetched_event,
-                        queue_done_event=queue_done_event,
+                    for worker_number in worker_numbers:
+                        tg.create_task(
+                            self._do_async_work(
+                                worker_number=worker_number,
+                                client=client,
+                                log_queue=logging_async_queue,
+                                work_queue=async_work_queue,
+                                overall_queue_key=overall_queue_key,
+                                page_fetch_counter=page_fetch_counter,
+                                busy_event=worker_busy_events[worker_number],
+                                queue_done_event=queue_done_event,
+                            )
+                        )
+
+                    tg.create_task(
+                        self._ensure_all_async_work_done_and_queue_empty(
+                            log_queue=logging_async_queue,
+                            work_queue=async_work_queue,
+                            overall_queue_key=overall_queue_key,
+                            worker_busy_events=worker_busy_events,
+                            all_pages_fetched_event=all_pages_fetched_event,
+                            queue_done_event=queue_done_event,
+                        )
                     )
-                )
 
     async def _download_all(
         self,
@@ -592,6 +609,9 @@ class AsyncDatasetDownloader:
                     pass
             else:
                 page_fetch_counter[page_num].append(record_num)
+                await log_queue.put(
+                    UpdateProgress(key=overall_queue_key, advance=file_size_bytes)
+                )
                 return DownloadSingleFileResult(
                     original_file_name=original_file_name,
                     new_file_name=original_file_name,
@@ -822,70 +842,56 @@ class AsyncDatasetDownloader:
         *,
         queue: TwoColoredSyncLogQueueType,
         overall_queue_key: str,
+        progress: Progress,
     ) -> None:
         is_work_done: bool = False
 
         key_to_task_id: dict[str, TaskID] = {}
         overall_task_id: TaskID | None = None
 
-        progress = Progress(
-            TextColumn("[bold blue]{task.fields[filename]}", justify="right"),
-            BarColumn(bar_width=None),
-            "[progress.percentage]{task.percentage:>3.1f}%",
-            "•",
-            DownloadColumn(),
-            "•",
-            TransferSpeedColumn(),
-            "•",
-            TimeRemainingColumn(),
-            "•",
-            TimeElapsedColumn(),
-        )
+        while True:
+            try:
+                next_entry = queue.get(timeout=1.5)  # 1.5s
+            except QueueEmpty:
+                if is_work_done:
+                    break
+                else:
+                    continue
 
-        with progress:
-            while True:
-                try:
-                    next_entry = queue.get(timeout=1.5)  # 1.5s
-                except QueueEmpty:
-                    if is_work_done:
-                        break
-                    else:
-                        continue
-
-                try:
-                    match next_entry:
-                        case MessageProgressAddTask(
-                            key=key, message=message, total=total, filename=filename
-                        ):
-                            if key == overall_queue_key:
-                                overall_task_id = progress.add_task(
-                                    message, total=total, filename=filename
-                                )
-                            else:
-                                key_to_task_id[key] = progress.add_task(
-                                    message, total=total, filename=filename
-                                )
-                        case MessageProgressUpdateTask(key=key, advance=advance):
-                            if key == overall_queue_key:
-                                if overall_task_id is not None:
-                                    progress.update(overall_task_id, advance=advance)
-                            else:
-                                progress.update(key_to_task_id[key], advance=advance)
-                        case MessageProgressRemoveTask(key=key):
-                            if key == overall_queue_key:
-                                if overall_task_id is not None:
-                                    progress.remove_task(overall_task_id)
-                                overall_task_id = None
-                            else:
-                                progress.remove_task(key_to_task_id[key])
-                                key_to_task_id.pop(key, None)
-                        case MessageLog(rprint=rprint_value):
-                            rprint(rprint_value)
-                        case MessageWorkDone():
-                            is_work_done = True
-                        case MessageFetchFile():
-                            raise RuntimeError("Not expecting this message type here.")
-                        case _:
-                            rprint(f"[red]Unexpected message: {next_entry}[/red]")  # type: ignore[unreachable]
-                finally:
-                    queue.task_done()
+            try:
+                match next_entry:
+                    case MessageProgressAddTask(
+                        key=key, message=message, total=total, filename=filename
+                    ):
+                        if key == overall_queue_key:
+                            overall_task_id = progress.add_task(
+                                message, total=total, filename=filename
+                            )
+                        else:
+                            key_to_task_id[key] = progress.add_task(
+                                message, total=total, filename=filename
+                            )
+                    case MessageProgressUpdateTask(key=key, advance=advance):
+                        if key == overall_queue_key:
+                            if overall_task_id is not None:
+                                progress.update(overall_task_id, advance=advance)
+                        else:
+                            progress.update(key_to_task_id[key], advance=advance)
+                    case MessageProgressRemoveTask(key=key):
+                        if key == overall_queue_key:
+                            if overall_task_id is not None:
+                                progress.remove_task(overall_task_id)
+                            overall_task_id = None
+                        else:
+                            progress.remove_task(key_to_task_id[key])
+                            key_to_task_id.pop(key, None)
+                    case MessageLog(rprint=rprint_value):
+                        rprint(rprint_value)
+                    case MessageWorkDone():
+                        is_work_done = True
+                    case MessageFetchFile():
+                        raise RuntimeError("Not expecting this message type here.")
+                    case _:
+                        rprint(f"[red]Unexpected message: {next_entry}[/red]")  # type: ignore[unreachable]
+            finally:
+                queue.task_done()
