@@ -311,7 +311,7 @@ class AsyncDatasetDownloader:
             raise RuntimeError("Expecting a running/working event loop at this point.")
 
         worker_numbers: tuple[int, ...] = tuple(range(1, self.num_workers + 1))
-        page_fetch_counter: dict[int, bool | list[int]] = {}
+        page_fetch_counter: dict[int, list[int]] = {}
         worker_busy_events: dict[int, asyncio.Event] = {
             worker_number: asyncio.Event() for worker_number in worker_numbers
         }
@@ -368,7 +368,7 @@ class AsyncDatasetDownloader:
         client: httpx.AsyncClient,
         queue: TwoColoredAsyncQueueType,
         overall_queue_key: str,
-        page_fetch_counter: dict[int, bool | list[int]],
+        page_fetch_counter: dict[int, list[int]],
         worker_busy_events: dict[int, asyncio.Event],
         all_pages_fetched_event: asyncio.Event,
     ):
@@ -425,6 +425,8 @@ class AsyncDatasetDownloader:
         current_overall_record_number: int = 1
         total_pages: int | None = None
 
+        page_to_records_needing_fetch: dict[int, set[int]] = {}
+
         def has_more_pages_to_fetch() -> bool | None:
             if total_pages is None:
                 return None
@@ -438,23 +440,61 @@ class AsyncDatasetDownloader:
             keys_set = set(page_fetch_counter.keys())
             if len(keys_set) <= 1:
                 return True
+            return False
 
-        def roll_up_page_fetch_counter():
-            pass
+        async def roll_up_page_fetch_counter():
+            # The record numbers needed to be fetched for the page number (dict key).
+            needing_fetch: dict[int, set[int]] = page_to_records_needing_fetch
+            # The record numbers that have been fetched for the page number (dict key).
+            fetched: dict[int, list[int]] = page_fetch_counter
+
+            for page_fetched, record_nums_fetched in fetched.items():
+                if page_fetched not in needing_fetch:
+                    continue
+                # For the record numbers that have been fetched, remove them from the
+                # set of record numbers needed to be fetched.
+                for record_num_fetched in record_nums_fetched:
+                    needing_fetch[page_fetched].discard(record_num_fetched)
+
+            for page_needing_fetch, record_nums_needing_fetch in needing_fetch.items():
+                # If the set of record numbers needed to be fetched is empty, then the
+                # page has been fully downloaded.
+                if not record_nums_needing_fetch:
+                    del needing_fetch[page_needing_fetch]
+                    del fetched[page_needing_fetch]
+                    await queue.put(
+                        Log(f"Page {page_needing_fetch} marked as fully downloaded.")
+                    )
 
         while True:
             await queue.put(Log(f"Fetching page {current_page_number}..."))
 
             next_query_params = query_params | {"page": current_page_number}
+            # TODO (Dewey Team): Make sure this is wrapped with retries and exponential
+            # backoff, etc.
             data_response = await async_api_request(
-                "GET", f"{self.base_url}/files", params=next_query_params
+                "GET",
+                f"{self.base_url}/files",
+                params=next_query_params,
+                timeout=httpx.Timeout(30.0),
+                client=client,
             )
             response_data = data_response.json()
             batch = cast(GetFilesDict, response_data)
+
             total_pages = batch["total_pages"]
             assert isinstance(total_pages, int), "Pre-condition"
+
+            page_to_records_needing_fetch.setdefault(current_page_number, set())
+            _current_overall_record_number = current_overall_record_number
+            for __ in batch:
+                page_to_records_needing_fetch[current_page_number].add(
+                    _current_overall_record_number
+                )
+                _current_overall_record_number += 1
+            del _current_overall_record_number
+
             page_fetch_counter[current_page_number] = []
-            rprint(f"Fetched page {current_page_number}...")
 
             for raw_link_info in batch:
                 link = raw_link_info["link"]
@@ -478,11 +518,25 @@ class AsyncDatasetDownloader:
 
                 current_overall_record_number += 1
 
-                await asyncio.sleep(0.150)  # 150ms
+            await asyncio.sleep(0.150)  # 150ms
 
             current_page_number += 1
-            if current_page_number > total_pages:
+
+            if not has_more_pages_to_fetch():
                 break
+
+            while True:
+                await roll_up_page_fetch_counter()
+
+                if not is_ready_to_fetch_next_page():
+                    await asyncio.sleep(0.150)  # 150ms
+                    continue
+
+                break
+
+        await queue.put(
+            Log(f"[green]All pages {total_pages}/{total_pages} fetched[/green].")
+        )
 
     async def _download_single_file(
         self,
@@ -491,37 +545,43 @@ class AsyncDatasetDownloader:
         info: DownloadSingleFileInfo,
         queue: TwoColoredAsyncQueueType,
         overall_queue_key: str,
+        page_fetch_counter: dict[int, list[int]],
     ) -> DownloadSingleFileResult:
         AddProgress = MessageProgressAddTask
         UpdateProgress = MessageProgressUpdateTask
         RemoveProgress = MessageProgressRemoveTask
         Log = MessageLog
 
+        link = info.link
+        original_file_name = info.original_file_name
+        file_size_bytes = info.file_size_bytes
+        new_file_path = info.new_file_path
         page_num = info.page_num
         record_num = info.record_num
-        link = info.link
         queue_key = f"p{page_num}-r{record_num}-{link}"
 
-        new_file_path = info.new_file_path
         does_new_file_path_already_exist = await new_file_path.exists()
         if does_new_file_path_already_exist and self.skip_existing:
-            stats = await new_file_path.stat()
-            stats = cast(stat_result, stats)
-            file_size_bytes = stats.st_size
-            info_file_size_bytes = info.file_size_bytes
-            if file_size_bytes != info_file_size_bytes:
+            existing_file_stats = await new_file_path.stat()
+            existing_file_stats = cast(stat_result, existing_file_stats)
+            file_size_bytes_from_existing_file = existing_file_stats.st_size
+            if file_size_bytes_from_existing_file != file_size_bytes:
                 await queue.put(
                     Log(
-                        f"(page_num={page_num}, record_num={record_num}) File size "
+                        f"[yellow](page_num={page_num}, record_num={record_num}) File size "
                         f"did not match for file (so re-downloading): "
-                        f"{info.original_file_name}"
+                        f"{original_file_name}[/yellow]"
                     )
                 )
-                await new_file_path.unlink()
+                try:
+                    await new_file_path.unlink()
+                except FileNotFoundError:
+                    pass
             else:
+                page_fetch_counter[page_num].append(record_num)
                 return DownloadSingleFileResult(
-                    original_file_name=info.original_file_name,
-                    new_file_name=info.original_file_name,
+                    original_file_name=original_file_name,
+                    new_file_name=original_file_name,
                     new_file_path=new_file_path,
                     did_skip=True,
                 )
@@ -529,9 +589,9 @@ class AsyncDatasetDownloader:
         await queue.put(
             AddProgress(
                 key=queue_key,
-                message=f"Downloading {info.original_file_name}",
-                total=info.file_size_bytes,
-                filename=info.original_file_name,
+                message=f"Downloading {original_file_name}",
+                total=file_size_bytes,
+                filename=original_file_name,
             )
         )
 
@@ -539,27 +599,29 @@ class AsyncDatasetDownloader:
         total_amount_advanced_here: int = 0
 
         try:
-            async with client.stream(
-                "GET",
-                link,
-                follow_redirects=True,
-                timeout=httpx.Timeout(300.0),
-            ) as r:
-                async with aiofiles.open(new_file_path, "wb") as f:
-                    async for raw_bytes in r.aiter_bytes():
-                        chunk_size = len(raw_bytes)
-                        await f.write(raw_bytes)
-                        await queue.put(
-                            UpdateProgress(key=queue_key, advance=chunk_size)
-                        )
-                        file_amount_advanced_here += chunk_size
-                        await queue.put(
-                            UpdateProgress(key=overall_queue_key, advance=chunk_size)
-                        )
-                        total_amount_advanced_here += chunk_size
+            # TODO (Dewey Team): Make sure this is wrapped with retries and exponential
+            # backoff, etc.
+            async with (
+                client.stream(
+                    "GET",
+                    link,
+                    follow_redirects=True,
+                    timeout=httpx.Timeout(180.0),
+                ) as r,
+                aiofiles.open(new_file_path, "wb") as f,
+            ):
+                async for raw_bytes in r.aiter_bytes():
+                    chunk_size = len(raw_bytes)
+                    await f.write(raw_bytes)
+                    await queue.put(UpdateProgress(key=queue_key, advance=chunk_size))
+                    file_amount_advanced_here += chunk_size
+                    await queue.put(
+                        UpdateProgress(key=overall_queue_key, advance=chunk_size)
+                    )
+                    total_amount_advanced_here += chunk_size
         except Exception as e:
             await queue.put(
-                Log(f"[red]Error downloading {info.original_file_name}: {e}[/red]")
+                Log(f"[red]Error downloading {original_file_name}: {e}[/red]")
             )
             await queue.put(
                 UpdateProgress(
@@ -571,8 +633,20 @@ class AsyncDatasetDownloader:
                     key=overall_queue_key, advance=-1 * total_amount_advanced_here
                 )
             )
+            # TODO (Dewey Team): Make sure other stuff is wrapped with retries and
+            # exponential backoff, etc.
+            raise RuntimeError(f"Error downloading {original_file_name}: {e}") from e
+        else:
+            page_fetch_counter[page_num].append(record_num)
         finally:
             await queue.put(RemoveProgress(key=queue_key))
+
+        return DownloadSingleFileResult(
+            original_file_name=original_file_name,
+            new_file_name=original_file_name,
+            new_file_path=new_file_path,
+            did_skip=False,
+        )
 
     async def _do_async_work(
         self,
@@ -581,7 +655,7 @@ class AsyncDatasetDownloader:
         client: httpx.AsyncClient,
         queue: TwoColoredAsyncQueueType,
         overall_queue_key: str,
-        page_fetch_counter: dict[int, bool | list[int]],
+        page_fetch_counter: dict[int, list[int]],
         busy_event: asyncio.Event,
         queue_done_event: asyncio.Event,
     ) -> None:
@@ -591,6 +665,8 @@ class AsyncDatasetDownloader:
         Log = MessageLog
 
         consecutive_empty_entries: int = 0
+
+        await queue.put(Log(f"Async worker number {worker_number} started."))
 
         while True:
             entry = None
@@ -635,6 +711,10 @@ class AsyncDatasetDownloader:
                     )
                 case _:
                     await queue.put(Log(f"[red]Unexpected message: {entry}[/red]"))
+
+        await queue.put(
+            Log(f"[green]Async worker number {worker_number} done.[/green]")
+        )
 
     async def _ensure_all_async_work_done_and_queue_empty(
         *,
@@ -693,12 +773,24 @@ class AsyncDatasetDownloader:
         for final_worker_busy_event in worker_busy_events.values():
             await final_worker_busy_event.wait()
 
+        # Set the `queue_done_event` to signal that the queue is done.
+        queue_done_event.set()
+
+        # Sleep ~15ms.
+        await asyncio.sleep(0.015)  # 15ms
+
+        # Do one more double pass of worker busy events before sending
+        # `MessageWorkDone(...)`.
+        for final_worker_busy_event in worker_busy_events.values():
+            await final_worker_busy_event.wait()
+        # Sleep ~3ms.
+        await asyncio.sleep(0.003)  # 3ms
+        for final_worker_busy_event in worker_busy_events.values():
+            await final_worker_busy_event.wait()
+
         # Put the `MessageWorkDone(...)` message into the queue to tell the logging
         # thread (and any other threads down the line if needed) that the work is done.
         await queue.put(MessageWorkDone())
-
-        # Set the `queue_done_event` to signal that the queue is done.
-        queue_done_event.set()
 
     def _do_logging_work(
         self,
@@ -714,10 +806,12 @@ class AsyncDatasetDownloader:
 
         while True:
             try:
-                next_entry = queue.get(timeout=3.0)
+                next_entry = queue.get(timeout=1.5)  # 1.5s
             except QueueEmpty:
                 if is_work_done:
                     break
+                else:
+                    continue
 
             match next_entry:
                 case MessageProgressAddTask(
@@ -743,8 +837,8 @@ class AsyncDatasetDownloader:
                     else:
                         progress.remove_task(key_to_task_id[key])
                         key_to_task_id.pop(key, None)
-                case MessageLog(rprint=rprint):
-                    rprint(rprint)
+                case MessageLog(rprint=rprint_value):
+                    rprint(rprint_value)
                 case MessageWorkDone():
                     is_work_done = True
                 case MessageFetchNextPage():
