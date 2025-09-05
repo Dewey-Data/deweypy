@@ -241,7 +241,7 @@ WorkQueueType: TypeAlias = asyncio.Queue[WorkQueueRecordType]
 
 
 class AsyncDatasetDownloader:
-    DEFAULT_NUM_WORKERS: ClassVar[int | Literal["auto"]] = 10
+    DEFAULT_NUM_WORKERS: ClassVar[int | Literal["auto"]] = 8
     DEFAULT_BUFFER_CHUNK_SIZE: ClassVar[int] = 131_072  # ~128KB
 
     def __init__(
@@ -283,7 +283,7 @@ class AsyncDatasetDownloader:
     def num_workers(self) -> int:
         if self._num_workers == "auto":
             if self.DEFAULT_NUM_WORKERS == "auto":
-                return 10
+                return 8
             return self.DEFAULT_NUM_WORKERS
         return self._num_workers
 
@@ -699,8 +699,8 @@ class AsyncDatasetDownloader:
             async with (
                 client_for_file_platform.stream(
                     "GET",
-                    link,
-                    follow_redirects=False,
+                    final_url,
+                    follow_redirects=True,
                     timeout=httpx.Timeout(300.0),
                 ) as r,
                 aiofiles.open(new_file_path, "wb") as f,

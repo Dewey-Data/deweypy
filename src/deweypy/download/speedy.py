@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import sys
+from typing import Literal
 
 from rich import print as rprint
 
@@ -31,6 +32,8 @@ def run_speedy_download(
     partition_key_after: str | None = None,
     partition_key_before: str | None = None,
     skip_existing: bool = True,
+    num_workers: int | Literal["auto"] | None = None,
+    buffer_chunk_size: int | None = None,
 ):
     found_winloop: bool = False
     found_uvloop: bool = False
@@ -69,6 +72,8 @@ def run_speedy_download(
             partition_key_after=partition_key_after,
             partition_key_before=partition_key_before,
             skip_existing=skip_existing,
+            num_workers=num_workers,
+            buffer_chunk_size=buffer_chunk_size,
         )
         await downloader.download_all()
 
