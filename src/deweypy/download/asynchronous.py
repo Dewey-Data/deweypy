@@ -294,20 +294,6 @@ class AsyncDatasetDownloader:
         async_work_queue: WorkQueueType = asyncio.Queue()
         overall_queue_key = "overall"
 
-        progress = Progress(
-            TextColumn("[bold blue]{task.fields[filename]}", justify="right"),
-            BarColumn(bar_width=None),
-            "[progress.percentage]{task.percentage:>3.1f}%",
-            "•",
-            DownloadColumn(),
-            "•",
-            TransferSpeedColumn(),
-            "•",
-            TimeRemainingColumn(),
-            "•",
-            TimeElapsedColumn(),
-        )
-
         loop = asyncio.get_running_loop()
         if loop is None:
             raise RuntimeError("Expecting a running/working event loop at this point.")
@@ -322,9 +308,7 @@ class AsyncDatasetDownloader:
 
         def do_logging_work():
             return self._do_logging_work(
-                queue=logging_sync_queue,
-                progress=progress,
-                overall_queue_key=overall_queue_key,
+                queue=logging_sync_queue, overall_queue_key=overall_queue_key
             )
 
         async with make_async_client() as client:
@@ -546,15 +530,18 @@ class AsyncDatasetDownloader:
 
             current_page_number += 1
 
+            await roll_up_page_fetch_counter()
+
             if not has_more_pages_to_fetch():
                 break
 
             while True:
-                await roll_up_page_fetch_counter()
-
                 if not is_ready_to_fetch_next_page():
                     await asyncio.sleep(0.150)  # 150ms
+                    await roll_up_page_fetch_counter()
                     continue
+
+                await roll_up_page_fetch_counter()
 
                 break
 
@@ -836,7 +823,6 @@ class AsyncDatasetDownloader:
         self,
         *,
         queue: TwoColoredSyncLogQueueType,
-        progress: Progress,
         overall_queue_key: str,
     ) -> None:
         is_work_done: bool = False
@@ -844,46 +830,64 @@ class AsyncDatasetDownloader:
         key_to_task_id: dict[str, TaskID] = {}
         overall_task_id: TaskID | None = None
 
-        while True:
-            try:
-                next_entry = queue.get(timeout=1.5)  # 1.5s
-            except QueueEmpty:
-                if is_work_done:
-                    break
-                else:
-                    continue
+        progress = Progress(
+            TextColumn("[bold blue]{task.fields[filename]}", justify="right"),
+            BarColumn(bar_width=None),
+            "[progress.percentage]{task.percentage:>3.1f}%",
+            "•",
+            DownloadColumn(),
+            "•",
+            TransferSpeedColumn(),
+            "•",
+            TimeRemainingColumn(),
+            "•",
+            TimeElapsedColumn(),
+        )
 
-            match next_entry:
-                case MessageProgressAddTask(
-                    key=key, message=message, total=total, filename=filename
-                ):
-                    if key == overall_queue_key:
-                        overall_task_id = progress.add_task(
-                            message, total=total, filename=filename
-                        )
+        with progress:
+            while True:
+                try:
+                    next_entry = queue.get(timeout=1.5)  # 1.5s
+                except QueueEmpty:
+                    if is_work_done:
+                        break
                     else:
-                        key_to_task_id[key] = progress.add_task(
-                            message, total=total, filename=filename
-                        )
-                case MessageProgressUpdateTask(key=key, advance=advance):
-                    if key == overall_queue_key:
-                        if overall_task_id is not None:
-                            progress.update(overall_task_id, advance=advance)
-                    else:
-                        progress.update(key_to_task_id[key], advance=advance)
-                case MessageProgressRemoveTask(key=key):
-                    if key == overall_queue_key:
-                        if overall_task_id is not None:
-                            progress.remove_task(overall_task_id)
-                        overall_task_id = None
-                    else:
-                        progress.remove_task(key_to_task_id[key])
-                        key_to_task_id.pop(key, None)
-                case MessageLog(rprint=rprint_value):
-                    rprint(rprint_value)
-                case MessageWorkDone():
-                    is_work_done = True
-                case MessageFetchFile():
-                    raise RuntimeError("Not expecting this message type here.")
-                case _:
-                    rprint(f"[red]Unexpected message: {next_entry}[/red]")  # type: ignore[unreachable]
+                        continue
+
+                try:
+                    match next_entry:
+                        case MessageProgressAddTask(
+                            key=key, message=message, total=total, filename=filename
+                        ):
+                            if key == overall_queue_key:
+                                overall_task_id = progress.add_task(
+                                    message, total=total, filename=filename
+                                )
+                            else:
+                                key_to_task_id[key] = progress.add_task(
+                                    message, total=total, filename=filename
+                                )
+                        case MessageProgressUpdateTask(key=key, advance=advance):
+                            if key == overall_queue_key:
+                                if overall_task_id is not None:
+                                    progress.update(overall_task_id, advance=advance)
+                            else:
+                                progress.update(key_to_task_id[key], advance=advance)
+                        case MessageProgressRemoveTask(key=key):
+                            if key == overall_queue_key:
+                                if overall_task_id is not None:
+                                    progress.remove_task(overall_task_id)
+                                overall_task_id = None
+                            else:
+                                progress.remove_task(key_to_task_id[key])
+                                key_to_task_id.pop(key, None)
+                        case MessageLog(rprint=rprint_value):
+                            rprint(rprint_value)
+                        case MessageWorkDone():
+                            is_work_done = True
+                        case MessageFetchFile():
+                            raise RuntimeError("Not expecting this message type here.")
+                        case _:
+                            rprint(f"[red]Unexpected message: {next_entry}[/red]")  # type: ignore[unreachable]
+                finally:
+                    queue.task_done()
