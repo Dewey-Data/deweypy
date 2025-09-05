@@ -6,7 +6,7 @@ name = "deweypy"
 version = "0.1.0a1"
 description = "A Python client for Dewey Data (https://deweydata.io/)."
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 
 dependencies = [
   "aiofiles>=24.1.0",
@@ -78,7 +78,7 @@ exclude_also = [
 # ==== mypy ====
 # https://github.com/python/mypy
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.12"
 check_untyped_defs = true
 exclude = []
 ignore_missing_imports = true

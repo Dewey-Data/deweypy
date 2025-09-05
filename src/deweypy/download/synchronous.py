@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import nullcontext
 from functools import cached_property
 from pathlib import Path
 from threading import Lock
@@ -382,32 +383,35 @@ def api_request(
         **(headers or {}),  # type: ignore[dict-item]
     }
 
-    client_to_use = (
-        httpx.Client(
+    _client_to_use = (
+        make_client(
+            headers=headers_to_use,
             cookies=cookies,
             proxy=proxy,
-            verify=verify,
             timeout=timeout_to_use,
+            verify=verify,
             trust_env=trust_env,
         )
         if client is None
         else client
     )
 
-    response = client_to_use.request(
-        method,
-        url,
-        params=params,
-        content=content,
-        data=data,
-        files=files,
-        json=json,
-        headers=headers_to_use,
-        cookies=cookies,
-        auth=auth,
-        follow_redirects=follow_redirects,
-        **kwargs,
-    )
+    with _client_to_use if client is None else nullcontext(client) as client_to_use:
+        response = client_to_use.request(
+            method,
+            url,
+            params=params,
+            content=content,
+            data=data,
+            files=files,
+            json=json,
+            headers=headers_to_use,
+            cookies=cookies,
+            auth=auth,
+            follow_redirects=follow_redirects,
+            **kwargs,
+        )
+
     response.raise_for_status()
 
     return response
