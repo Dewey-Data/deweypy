@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import os
+import sys
 from pathlib import Path
 from typing import Literal, cast
 
@@ -13,7 +15,8 @@ from deweypy.auth import (
     set_api_key,
 )
 from deweypy.context import main_context, set_entrypoint
-from deweypy.downloads import (
+from deweypy.download import (
+    AsyncDatasetDownloader,
     DatasetDownloader,
     resolve_download_directory,
     set_download_directory,
@@ -98,15 +101,16 @@ def _handle_download_directory_option(
                     "download files to. Defaults to the dewey-downloads folder within "
                     "the current directory."
                 ),
-                default=".",
+                default=f".{os.sep}dewey-downloads",
             ),
         )
 
+    download_directory_path: Path | None = None
     if isinstance(download_directory, str) and download_directory:
-        download_directory = Path(download_directory)
+        download_directory_path = Path(download_directory)
 
     resolved_download_directory, resolved_source = resolve_download_directory(
-        potentially_provided_value=download_directory,
+        potentially_provided_value=download_directory_path,
         callback_if_missing=download_directory_callback,
         invalid_exception_class=RuntimeError,
     )
@@ -165,3 +169,57 @@ def download(
         skip_existing=skip_existing,
     )
     downloader.download()
+
+
+@app.command()
+def fast_download(
+    ds_or_folder_id: str = typer.Argument(..., help="Dataset or Folder ID."),
+    partition_key_after: str | None = typer.Option(None, help="Partition key after."),
+    partition_key_before: str | None = typer.Option(None, help="Partition key before."),
+    skip_existing: bool = typer.Option(False, help="Skip existing files?"),
+):
+    rprint("Hello from `fast_download`!")
+
+    async def run():
+        downloader = AsyncDatasetDownloader(
+            ds_or_folder_id,
+            partition_key_after=partition_key_after,
+            partition_key_before=partition_key_before,
+            skip_existing=skip_existing,
+        )
+        await downloader.download_all()
+
+    # https://github.com/Vizonex/Winloop?tab=readme-ov-file#how-to-use-winloop-when-uvloop-is-not-available
+    if sys.platform in ("win32", "cygwin", "cli"):
+        try:
+            # If on Windows, use `winloop` (https://github.com/Vizonex/Winloop)
+            # if available.
+            from winloop import (
+                run as loop_run_fn,  # pyright: ignore[reportMissingImports]
+            )
+        except ImportError:
+            # Otherwise, fall back to `asyncio` `run.`
+            from asyncio import run as loop_run_fn
+    else:
+        try:
+            # If on Linux/macOs/non-Windows, etc., use `uvloop` if available.
+            from uvloop import run as loop_run_fn
+        except ImportError:
+            # Otherwise, fall back to `asyncio` `run.`
+            from asyncio import run as loop_run_fn
+
+    running_loop = None
+    try:
+        running_loop = asyncio.get_running_loop()
+    except Exception:
+        pass
+
+    if running_loop is None:
+        rprint("No running loop found, using `loop_run_fn` to run the coroutine.")
+        loop_run_fn(run())
+    else:
+        rprint(
+            "Running loop found, using `running_loop.run_until_complete` to run the "
+            "coroutine."
+        )
+        running_loop.run_until_complete(run())

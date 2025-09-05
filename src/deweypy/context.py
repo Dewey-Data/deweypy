@@ -89,14 +89,14 @@ class MainContext:
     def download_directory(self) -> Path:
         if self._download_directory:
             return self._download_directory
-        downloads_module = _get_downloads_module()
-        resolved_download_directory = downloads_module.resolve_download_directory(
+        download_module = _get_download_module()
+        resolved_download_directory = download_module.resolve_download_directory(
             potentially_provided_value=self._download_directory,
             callback_if_missing=self._missing_download_directory_callback,
             invalid_exception_class=RuntimeError,
         )
         self._download_directory = resolved_download_directory
-        downloads_module.sanity_check_download_directory_value(self._download_directory)
+        download_module.sanity_check_download_directory_value(self._download_directory)
         return resolved_download_directory
 
     @download_directory.setter
@@ -108,8 +108,9 @@ class MainContext:
         if self._download_directory in ("", None):
             self.download_directory_repr_preview = "not_set"
             return
-        downloads_module = _get_downloads_module()
-        downloads_module.sanity_check_download_directory_value(self._download_directory)
+        download_module = _get_download_module()
+        download_module.sanity_check_download_directory_value(self._download_directory)
+        assert self._download_directory is not None, "Post-condition"
         preview_value = self._download_directory.as_posix()
         self.download_directory_repr_preview = preview_value
 
@@ -149,7 +150,7 @@ def _get_auth_module():
 
 
 @lru_cache(1)
-def _get_downloads_module():
-    from deweypy import downloads as downloads_module
+def _get_download_module():
+    from deweypy import download as download_module
 
-    return downloads_module
+    return download_module

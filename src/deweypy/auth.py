@@ -70,6 +70,8 @@ def sanity_check_api_key_value(
 ) -> str:
     if api_key in ("", None):
         raise invalid_exception_class(empty_message)
+    assert api_key is not None, "Post-condition"
+    assert api_key != "", "Post-condition"
     if len(api_key) <= 18:
         raise invalid_exception_class(too_short_message)
     return api_key

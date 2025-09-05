@@ -65,7 +65,7 @@ def resolve_download_directory(
         )
         return (Path(env_download_directory), "environment")
 
-    callback_download_directory = callback_if_missing()
+    callback_download_directory: Path | str = callback_if_missing()
     if isinstance(callback_download_directory, str) and callback_download_directory:
         callback_download_directory = Path(callback_download_directory)
     sanity_check_download_directory_value(
@@ -76,15 +76,16 @@ def resolve_download_directory(
 
 
 def sanity_check_download_directory_value(
-    download_directory: Path | None,
+    download_directory: Path | None | Literal[""],
     *,
     invalid_exception_class: type[RuntimeError] | type[ValueError] = ValueError,
     empty_message: str = "The Download Directory must be provided.",
     does_not_exist_message: str = "The Download Directory must exist and be a valid folder.",
     not_a_directory_message: str = "The Download Directory must be a directory.",
-) -> str:
+) -> Path:
     if download_directory in ("", None):
         raise invalid_exception_class(empty_message)
+    assert isinstance(download_directory, Path), "Pre-condition"
     if not download_directory.exists():
         raise invalid_exception_class(does_not_exist_message)
     if not download_directory.is_dir():
