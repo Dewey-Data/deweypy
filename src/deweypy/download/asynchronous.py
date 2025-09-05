@@ -361,6 +361,7 @@ class AsyncDatasetDownloader:
                 self._ensure_all_async_work_done_and_queue_empty(
                     log_queue=logging_async_queue,
                     work_queue=async_work_queue,
+                    overall_queue_key=overall_queue_key,
                     worker_busy_events=worker_busy_events,
                     all_pages_fetched_event=all_pages_fetched_event,
                     queue_done_event=queue_done_event,
@@ -379,6 +380,7 @@ class AsyncDatasetDownloader:
         all_pages_fetched_event: asyncio.Event,
     ):
         Log = MessageLog
+        AddProgress = MessageProgressAddTask
 
         metadata = await self.metadata
         await log_queue.put(Log(f"Metadata: {metadata}"))
@@ -477,6 +479,7 @@ class AsyncDatasetDownloader:
                         Log(f"Page {page_needing_fetch} marked as fully downloaded.")
                     )
 
+        started_overall_progress: bool = False
         while True:
             await log_queue.put(Log(f"Fetching page {current_page_number}..."))
 
@@ -495,6 +498,17 @@ class AsyncDatasetDownloader:
 
             total_pages = batch["total_pages"]
             assert isinstance(total_pages, int), "Pre-condition"
+
+            if not started_overall_progress:
+                await log_queue.put(
+                    AddProgress(
+                        key=overall_queue_key,
+                        message="Overall Progress",
+                        total=total_size,
+                        filename="Overall",
+                    )
+                )
+                started_overall_progress = True
 
             page_to_records_needing_fetch.setdefault(current_page_number, set())
             _current_overall_record_number = current_overall_record_number
@@ -743,6 +757,7 @@ class AsyncDatasetDownloader:
         *,
         log_queue: TwoColoredAsyncLogQueueType,
         work_queue: WorkQueueType,
+        overall_queue_key: str,
         worker_busy_events: dict[int, asyncio.Event],
         all_pages_fetched_event: asyncio.Event,
         queue_done_event: asyncio.Event,
@@ -807,6 +822,9 @@ class AsyncDatasetDownloader:
         await asyncio.sleep(0.003)  # 3ms
         for final_worker_busy_event in worker_busy_events.values():
             await final_worker_busy_event.wait()
+
+        # Remove the overall progress bar.
+        await log_queue.put(MessageProgressRemoveTask(key=overall_queue_key))
 
         # Put the `MessageWorkDone(...)` message into the queue to tell the logging
         # thread (and any other threads down the line if needed) that the work is done.
