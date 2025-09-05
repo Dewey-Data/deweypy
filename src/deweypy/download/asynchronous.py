@@ -6,7 +6,6 @@ from typing import (
     TYPE_CHECKING,
     Any,
     ClassVar,
-    Final,
     Literal,
     TypeAlias,
     cast,
@@ -288,12 +287,9 @@ class AsyncDatasetDownloader:
         return "dataset-slug"
 
     async def download_all(self):
-        queue_max_size: Final[int] = 2_000
-        queue: TwoColoredAsyncQueueType = TwoColoredQueue(queue_max_size)
+        queue: TwoColoredQueueType = TwoColoredQueue()
         async_queue: TwoColoredAsyncQueueType = queue.async_q
-        async_queue = cast(TwoColoredAsyncQueueType, async_queue)
         sync_queue: TwoColoredSyncQueueType = queue.sync_q
-        sync_queue = cast(TwoColoredSyncQueueType, sync_queue)
         overall_queue_key = "overall"
 
         progress = Progress(
@@ -320,6 +316,7 @@ class AsyncDatasetDownloader:
             worker_number: asyncio.Event() for worker_number in worker_numbers
         }
         all_pages_fetched_event = asyncio.Event()
+        queue_done_event = asyncio.Event()
 
         def do_logging_work():
             return self._do_logging_work(
@@ -328,12 +325,13 @@ class AsyncDatasetDownloader:
                 overall_queue_key=overall_queue_key,
             )
 
-        async with asyncio.TaskGroup() as tg:
+        async with asyncio.TaskGroup() as tg, make_async_client() as client:
             logging_work_coroutine = asyncio.to_thread(do_logging_work)
             tg.create_task(logging_work_coroutine)
 
             tg.create_task(
                 self._download_all(
+                    client=client,
                     queue=async_queue,
                     overall_queue_key=overall_queue_key,
                     page_fetch_counter=page_fetch_counter,
@@ -346,17 +344,28 @@ class AsyncDatasetDownloader:
                 tg.create_task(
                     self._do_async_work(
                         worker_number=worker_number,
+                        client=client,
                         queue=async_queue,
                         overall_queue_key=overall_queue_key,
                         page_fetch_counter=page_fetch_counter,
                         busy_event=worker_busy_events[worker_number],
-                        all_pages_fetched_event=all_pages_fetched_event,
+                        queue_done_event=queue_done_event,
                     )
                 )
+
+            tg.create_task(
+                self._ensure_all_async_work_done_and_queue_empty(
+                    queue=async_queue,
+                    worker_busy_events=worker_busy_events,
+                    all_pages_fetched_event=all_pages_fetched_event,
+                    queue_done_event=queue_done_event,
+                )
+            )
 
     async def _download_all(
         self,
         *,
+        client: httpx.AsyncClient,
         queue: TwoColoredAsyncQueueType,
         overall_queue_key: str,
         page_fetch_counter: dict[int, bool | list[int]],
@@ -632,6 +641,7 @@ class AsyncDatasetDownloader:
         queue: TwoColoredAsyncQueueType,
         worker_busy_events: dict[int, asyncio.Event],
         all_pages_fetched_event: asyncio.Event,
+        queue_done_event: asyncio.Event,
         ensure_queue_empty_for_at_least_seconds: float = 3.0,
     ) -> None:
         # First, wait for all the pages to be fetched.
@@ -660,7 +670,8 @@ class AsyncDatasetDownloader:
                 # Otherwise, we go back to the start of the loop.
                 continue
 
-            # Wait the remaining half of the `ensure_queue_empty_for_at_least_seconds` time.
+            # Wait the remaining half of the `ensure_queue_empty_for_at_least_seconds`
+            # time.
             await asyncio.sleep(ensure_queue_empty_for_at_least_seconds / 2)
             elapsed += ensure_queue_empty_for_at_least_seconds / 2
             try:
@@ -672,11 +683,22 @@ class AsyncDatasetDownloader:
                 # Otherwise, we go back to the start of the loop.
                 continue
 
-        # Finally, we double check at the very end that all of the workers are
-        # done. There are possible edge cases with the queue being empty but
-        # workers having picked up stuff in the meantime, etc.
+        # Finally, we double check at the very end that all of the workers are done.
+        # There are possible edge cases with the queue being empty but workers having
+        # picked up stuff in the meantime, etc.
         for final_worker_busy_event in worker_busy_events.values():
             await final_worker_busy_event.wait()
+        # We'll also go through all of the busy events twice as a defensive/safety
+        # measure to make sure all the workers really are done.
+        for final_worker_busy_event in worker_busy_events.values():
+            await final_worker_busy_event.wait()
+
+        # Put the `MessageWorkDone(...)` message into the queue to tell the logging
+        # thread (and any other threads down the line if needed) that the work is done.
+        await queue.put(MessageWorkDone())
+
+        # Set the `queue_done_event` to signal that the queue is done.
+        queue_done_event.set()
 
     def _do_logging_work(
         self,
