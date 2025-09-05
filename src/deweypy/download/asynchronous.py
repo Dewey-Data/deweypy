@@ -241,7 +241,7 @@ WorkQueueType: TypeAlias = asyncio.Queue[WorkQueueRecordType]
 
 
 class AsyncDatasetDownloader:
-    DEFAULT_NUM_WORKERS: ClassVar[int | Literal["auto"]] = 5
+    DEFAULT_NUM_WORKERS: ClassVar[int | Literal["auto"]] = 10
 
     def __init__(
         self,
