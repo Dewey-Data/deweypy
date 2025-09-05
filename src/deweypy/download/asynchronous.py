@@ -209,11 +209,6 @@ class MessageWorkDone:
 
 
 @define(kw_only=True, slots=True)
-class MessageFetchNextPage:
-    current_page_number: int
-
-
-@define(kw_only=True, slots=True)
 class MessageFetchFile:
     info: DownloadSingleFileInfo
 
@@ -224,7 +219,6 @@ QueueRecordType: TypeAlias = (
     | MessageProgressRemoveTask
     | MessageLog
     | MessageWorkDone
-    | MessageFetchNextPage
     | MessageFetchFile
 )
 
@@ -372,7 +366,7 @@ class AsyncDatasetDownloader:
         worker_busy_events: dict[int, asyncio.Event],
         all_pages_fetched_event: asyncio.Event,
     ):
-        Log = self._MessageLog
+        Log = MessageLog
 
         metadata = await self.metadata
         await queue.put(Log(f"Metadata: {metadata}"))
@@ -496,7 +490,7 @@ class AsyncDatasetDownloader:
 
             page_fetch_counter[current_page_number] = []
 
-            for raw_link_info in batch:
+            for raw_link_info in batch["download_links"]:
                 link = raw_link_info["link"]
                 original_file_name = raw_link_info["file_name"]
                 file_size_bytes = raw_link_info["file_size_bytes"]
@@ -671,7 +665,7 @@ class AsyncDatasetDownloader:
         while True:
             entry = None
             try:
-                entry = await queue.get_nowait()
+                entry = queue.get_nowait()
             except QueueEmpty:
                 pass
             else:
@@ -699,8 +693,6 @@ class AsyncDatasetDownloader:
                 consecutive_empty_entries = 0
 
             match entry:
-                case MessageFetchNextPage(info=info):
-                    raise RuntimeError("Not expecting this message type here.")
                 case MessageFetchFile(info=info):
                     await self._download_single_file(
                         client=client,
@@ -717,6 +709,7 @@ class AsyncDatasetDownloader:
         )
 
     async def _ensure_all_async_work_done_and_queue_empty(
+        self,
         *,
         queue: TwoColoredAsyncQueueType,
         worker_busy_events: dict[int, asyncio.Event],
@@ -827,12 +820,14 @@ class AsyncDatasetDownloader:
                         )
                 case MessageProgressUpdateTask(key=key, advance=advance):
                     if key == overall_queue_key:
-                        progress.update(overall_task_id, advance=advance)
+                        if overall_task_id is not None:
+                            progress.update(overall_task_id, advance=advance)
                     else:
                         progress.update(key_to_task_id[key], advance=advance)
                 case MessageProgressRemoveTask(key=key):
                     if key == overall_queue_key:
-                        progress.remove_task(overall_task_id)
+                        if overall_task_id is not None:
+                            progress.remove_task(overall_task_id)
                         overall_task_id = None
                     else:
                         progress.remove_task(key_to_task_id[key])
@@ -841,9 +836,7 @@ class AsyncDatasetDownloader:
                     rprint(rprint_value)
                 case MessageWorkDone():
                     is_work_done = True
-                case MessageFetchNextPage():
-                    raise RuntimeError("Not expecting this message type here.")
                 case MessageFetchFile():
                     raise RuntimeError("Not expecting this message type here.")
                 case _:
-                    rprint(f"[red]Unexpected message: {next_entry}[/red]")
+                    rprint(f"[red]Unexpected message: {next_entry}[/red]")  # type: ignore[unreachable]
