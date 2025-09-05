@@ -1,11 +1,28 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import os
 import sys
 
 from rich import print as rprint
 
 from deweypy.download import AsyncDatasetDownloader
+
+SHOULD_DEBUG_SPEEDY: bool = os.getenv("DEWEY_SPEEDY_DEBUG") in (
+    True,
+    "True",
+    "true",
+    1,
+    "1",
+    "Yes",
+    "yes",
+    "Y",
+    "y",
+)
+
+if SHOULD_DEBUG_SPEEDY:
+    logging.basicConfig(level=logging.DEBUG)
 
 
 def run_speedy_download(
@@ -51,7 +68,10 @@ def run_speedy_download(
 
     if running_loop is None:
         rprint("No running loop found, using `loop_run_fn` to run the coroutine.")
-        loop_run_fn(run())
+        if SHOULD_DEBUG_SPEEDY:
+            loop_run_fn(run(), debug=True)
+        else:
+            loop_run_fn(run())
     else:
         rprint(
             "Running loop found, using `running_loop.run_until_complete` to run the "

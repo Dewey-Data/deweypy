@@ -14,7 +14,7 @@ from typing import (
 import aiofiles
 import httpx
 from aiopath import AsyncPath
-from async_property import async_cached_property, async_property
+from async_property import async_cached_property
 from attrs import define
 from culsans import (
     AsyncQueue as TwoColoredAsyncQueue,
@@ -276,7 +276,7 @@ class AsyncDatasetDownloader:
         response = await async_api_request("GET", f"{self.base_url}/description")
         return cast(DescribedDatasetDict, response.json())
 
-    @async_property
+    @async_cached_property
     async def sub_folder_path_str(self) -> str:
         # NOTE/TODO: Backend should send Dataset slug.
         return "dataset-slug"
@@ -386,7 +386,8 @@ class AsyncDatasetDownloader:
         await log_queue.put(Log(f"API Key: {main_context.api_key_repr_preview}"))
 
         _root_path = self.context.download_directory
-        _download_directory = _root_path / self.sub_folder_path_str
+        sub_folder_path_str = await self.sub_folder_path_str
+        _download_directory = _root_path / sub_folder_path_str
         download_directory = AsyncPath(_download_directory)
         if not await download_directory.exists():
             await log_queue.put(
@@ -417,13 +418,13 @@ class AsyncDatasetDownloader:
         await log_queue.put(Log(f"Skip existing: {skip_existing}"))
 
         total_files = metadata["total_files"]
-        await log_queue.put(Log(f"Total files: {total_files}"))
+        await log_queue.put(Log(f"Total files: {total_files:,}"))
 
         total_size = metadata["total_size"]
-        await log_queue.put(Log(f"Total size: {total_size}"))
+        await log_queue.put(Log(f"Total size: {total_size:,}"))
 
         num_workers = self.num_workers
-        await log_queue.put(Log(f"Using {num_workers} async workers for downloads"))
+        await log_queue.put(Log(f"Using {num_workers:,} async workers for downloads"))
 
         current_page_number: int = 1
         current_overall_record_number: int = 1
@@ -548,7 +549,6 @@ class AsyncDatasetDownloader:
         client: httpx.AsyncClient,
         info: DownloadSingleFileInfo,
         log_queue: TwoColoredAsyncLogQueueType,
-        work_queue: WorkQueueType,
         overall_queue_key: str,
         page_fetch_counter: dict[int, list[int]],
     ) -> DownloadSingleFileResult:
@@ -680,7 +680,7 @@ class AsyncDatasetDownloader:
             entry = None
             try:
                 entry = work_queue.get_nowait()
-            except QueueEmpty:
+            except asyncio.QueueEmpty:
                 pass
             else:
                 # This says that the worker is busy (it has an entry to process).
@@ -712,7 +712,6 @@ class AsyncDatasetDownloader:
                         client=client,
                         info=info,
                         log_queue=log_queue,
-                        work_queue=work_queue,
                         overall_queue_key=overall_queue_key,
                         page_fetch_counter=page_fetch_counter,
                     )
