@@ -100,8 +100,8 @@ class GetDescriptionCustomizedNonFileOnlyDatasetDict(GetDescriptionBaseDict):
     customized_name: str
 
 
-# NOTE: The above names are a bit verbose, but more descriptive. Here are some
-# shorter aliases.
+# NOTE: The above names are a bit verbose, but more descriptive. Here are some shorter
+# aliases.
 DescribedDatasetRegularDict: TypeAlias = GetDescriptionNonFileOnlyDatasetDict
 DescribedDatasetFileOnlyDict: TypeAlias = GetDescriptionFileOnlyDatasetDict
 DescribedCustomizedDatasetDict: TypeAlias = (
