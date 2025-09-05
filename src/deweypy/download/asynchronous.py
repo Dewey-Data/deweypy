@@ -741,8 +741,8 @@ class AsyncDatasetDownloader:
                     finally:
                         work_queue.task_done()
                 case _:
-                    try:
-                        await log_queue.put(  # type: ignore[unreachable]
+                    try:  # type: ignore[unreachable]
+                        await log_queue.put(
                             Log(f"[red]Unexpected message: {entry}[/red]")
                         )
                     finally:
