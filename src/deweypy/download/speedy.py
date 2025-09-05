@@ -25,6 +25,15 @@ if SHOULD_DEBUG_SPEEDY:
     logging.basicConfig(level=logging.DEBUG)
 
 
+CAN_USE_KLOOP: bool = os.getenv("DEWEY_SPEEDY_CAN_USE_KLOOP") in (
+    True,
+    "True",
+    "true",
+    1,
+    "1",
+)
+
+
 def run_speedy_download(
     ds_or_folder_id: str,
     *,
@@ -41,6 +50,9 @@ def run_speedy_download(
         )
         await downloader.download_all()
 
+    found_winloop: bool = False
+    found_uvloop: bool = False
+    found_kloop: bool = False
     # https://github.com/Vizonex/Winloop?tab=readme-ov-file#how-to-use-winloop-when-uvloop-is-not-available
     if sys.platform in ("win32", "cygwin", "cli"):
         try:
@@ -49,6 +61,8 @@ def run_speedy_download(
             from winloop import (  # pyright: ignore[reportMissingImports]
                 run as loop_run_fn,
             )
+
+            found_winloop = True
         except ImportError:
             # Otherwise, fall back to `asyncio` `run.`
             from asyncio import run as loop_run_fn
@@ -56,9 +70,19 @@ def run_speedy_download(
         try:
             # If on Linux/macOs/non-Windows, etc., use `uvloop` if available.
             from uvloop import run as loop_run_fn
+
+            found_uvloop = True
         except ImportError:
             # Otherwise, fall back to `asyncio` `run.`
             from asyncio import run as loop_run_fn
+
+        if CAN_USE_KLOOP:
+            try:
+                from kloop import run as loop_run_fn
+
+                found_kloop = True
+            except ImportError:
+                pass
 
     running_loop = None
     try:
@@ -68,6 +92,12 @@ def run_speedy_download(
 
     if running_loop is None:
         rprint("No running loop found, using `loop_run_fn` to run the coroutine.")
+        if found_winloop:
+            rprint("Using `winloop` to run the coroutine.")
+        elif found_uvloop:
+            rprint("Using `uvloop` to run the coroutine.")
+        else:
+            rprint("Using standard `asyncio` loop to run the coroutine.")
         if SHOULD_DEBUG_SPEEDY:
             loop_run_fn(run(), debug=True)
         else:
