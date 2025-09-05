@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from contextlib import nullcontext
 from os import stat_result
 from typing import (
@@ -235,7 +236,7 @@ WorkQueueType: TypeAlias = asyncio.Queue[WorkQueueRecordType]
 
 
 class AsyncDatasetDownloader:
-    DEFAULT_NUM_WORKERS: ClassVar[int | Literal["auto"]] = 10
+    DEFAULT_NUM_WORKERS: ClassVar[int | Literal["auto"]] = 5
 
     def __init__(
         self,
@@ -269,7 +270,9 @@ class AsyncDatasetDownloader:
     @property
     def num_workers(self) -> int:
         if self._num_workers == "auto":
-            return 10
+            if self.DEFAULT_NUM_WORKERS == "auto":
+                return 10
+            return self.DEFAULT_NUM_WORKERS
         return self._num_workers
 
     @async_cached_property
@@ -306,28 +309,32 @@ class AsyncDatasetDownloader:
         all_pages_fetched_event = asyncio.Event()
         queue_done_event = asyncio.Event()
 
-        progress = Progress(
-            TextColumn("[bold blue]{task.fields[filename]}", justify="right"),
-            BarColumn(bar_width=None),
-            "[progress.percentage]{task.percentage:>3.1f}%",
-            "•",
-            DownloadColumn(),
-            "•",
-            TransferSpeedColumn(),
-            "•",
-            TimeRemainingColumn(),
-            "•",
-            TimeElapsedColumn(),
-        )
+        logging_thread_stop_event = threading.Event()
 
         def do_logging_work():
-            return self._do_logging_work(
-                queue=logging_sync_queue,
-                overall_queue_key=overall_queue_key,
-                progress=progress,
+            progress = Progress(
+                TextColumn("[bold blue]{task.fields[filename]}", justify="right"),
+                BarColumn(bar_width=None),
+                "[progress.percentage]{task.percentage:>3.1f}%",
+                "•",
+                DownloadColumn(),
+                "•",
+                TransferSpeedColumn(),
+                "•",
+                TimeRemainingColumn(),
+                "•",
+                TimeElapsedColumn(),
             )
 
-        with progress:
+            with progress:
+                return self._do_logging_work(
+                    queue=logging_sync_queue,
+                    overall_queue_key=overall_queue_key,
+                    progress=progress,
+                    logging_thread_stop_event=logging_thread_stop_event,
+                )
+
+        try:
             async with make_async_client() as client:
                 async with asyncio.TaskGroup() as tg:
                     logging_work_coroutine = asyncio.to_thread(do_logging_work)
@@ -368,6 +375,8 @@ class AsyncDatasetDownloader:
                             queue_done_event=queue_done_event,
                         )
                     )
+        finally:
+            logging_thread_stop_event.set()
 
     async def _download_all(
         self,
@@ -461,7 +470,7 @@ class AsyncDatasetDownloader:
             # The record numbers that have been fetched for the page number (dict key).
             fetched: dict[int, list[int]] = page_fetch_counter
 
-            for page_fetched, record_nums_fetched in fetched.items():
+            for page_fetched, record_nums_fetched in list(fetched.items()):
                 if page_fetched not in needing_fetch:
                     continue
                 # For the record numbers that have been fetched, remove them from the
@@ -469,7 +478,9 @@ class AsyncDatasetDownloader:
                 for record_num_fetched in record_nums_fetched:
                     needing_fetch[page_fetched].discard(record_num_fetched)
 
-            for page_needing_fetch, record_nums_needing_fetch in needing_fetch.items():
+            for page_needing_fetch, record_nums_needing_fetch in list(
+                needing_fetch.items()
+            ):
                 # If the set of record numbers needed to be fetched is empty, then the
                 # page has been fully downloaded.
                 if not record_nums_needing_fetch:
@@ -609,6 +620,18 @@ class AsyncDatasetDownloader:
                     pass
             else:
                 page_fetch_counter[page_num].append(record_num)
+                await log_queue.put(
+                    AddProgress(
+                        key=queue_key,
+                        message=f"Already Downloaded {original_file_name}",
+                        total=file_size_bytes,
+                        filename=original_file_name,
+                    )
+                )
+                await log_queue.put(
+                    UpdateProgress(key=queue_key, advance=file_size_bytes)
+                )
+                await log_queue.put(RemoveProgress(key=queue_key))
                 await log_queue.put(
                     UpdateProgress(key=overall_queue_key, advance=file_size_bytes)
                 )
@@ -843,6 +866,7 @@ class AsyncDatasetDownloader:
         queue: TwoColoredSyncLogQueueType,
         overall_queue_key: str,
         progress: Progress,
+        logging_thread_stop_event: threading.Event,
     ) -> None:
         is_work_done: bool = False
 
@@ -850,6 +874,10 @@ class AsyncDatasetDownloader:
         overall_task_id: TaskID | None = None
 
         while True:
+            if logging_thread_stop_event.is_set():
+                rprint("Logging thread stop event set, stopping logging work.")
+                break
+
             try:
                 next_entry = queue.get(timeout=1.5)  # 1.5s
             except QueueEmpty:
