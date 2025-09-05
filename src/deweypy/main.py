@@ -178,14 +178,38 @@ def speedy_download(
     partition_key_after: str | None = typer.Option(None, help="Partition key after."),
     partition_key_before: str | None = typer.Option(None, help="Partition key before."),
     skip_existing: bool = typer.Option(True, help="Skip existing files?"),
+    num_workers: int | None = typer.Option(
+        -1, help="Number of async workers. Use -1 to get 'auto' behavior."
+    ),
+    buffer_chunk_size: int | None = typer.Option(
+        -1, help="Async file download buffer chunk size. Use -1 to get 'auto' behavior."
+    ),
 ):
     rprint("Hello from `speedy_download`!")
+
+    parsed_num_workers: int | Literal["auto"] | None = num_workers
+    if num_workers in (None, "None", "none", "NULL", "NULL", "null"):
+        parsed_num_workers = None
+    elif num_workers in ("auto", "Auto", "AUTO", "", "-1", -1):
+        parsed_num_workers = "auto"
+    else:
+        parsed_num_workers = int(num_workers)  # type: ignore[arg-type]
+
+    parsed_buffer_chunk_size: int | Literal["auto"] | None = buffer_chunk_size
+    if buffer_chunk_size in (None, "None", "none", "NULL", "NULL", "null"):
+        parsed_buffer_chunk_size = None
+    elif buffer_chunk_size in ("auto", "Auto", "AUTO", "", "-1", -1):
+        parsed_buffer_chunk_size = "auto"
+    else:
+        parsed_buffer_chunk_size = int(buffer_chunk_size)  # type: ignore[arg-type]
 
     run_speedy_download(
         ds_or_folder_id,
         partition_key_after=partition_key_after,
         partition_key_before=partition_key_before,
         skip_existing=skip_existing,
+        num_workers=parsed_num_workers,
+        buffer_chunk_size=parsed_buffer_chunk_size,
     )
 
 
@@ -193,12 +217,12 @@ def speedy_download(
 def speed_test(
     url: str = typer.Argument(..., help="URL to download repeatedly for timing."),
     n: int = typer.Argument(10, help="Number of sequential full downloads to perform."),
-    use_api_key: bool = typer.Option(False, help="Use API key?"),
 ):
     """
-    Run a synchronous HTTP download speed test for a given URL.
+    Run a synchronous HTTP download speed test for a given URL
+    (currently required to be a Dewey URL).
 
     Uses a regular `httpx` `Client` (non-async), with full downloads (no streaming).
     """
     with httpx.Client(http2=True, timeout=60.0) as client:
-        run_download_speed_test(client, url, num_downloads=n, use_api_key=use_api_key)
+        run_download_speed_test(client, url, num_downloads=n)

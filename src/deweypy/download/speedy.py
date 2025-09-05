@@ -32,8 +32,8 @@ def run_speedy_download(
     partition_key_after: str | None = None,
     partition_key_before: str | None = None,
     skip_existing: bool = True,
-    num_workers: int | Literal["auto"] | None = None,
-    buffer_chunk_size: int | None = None,
+    num_workers: int | Literal["auto"] | None = "auto",
+    buffer_chunk_size: int | Literal["auto"] | None = "auto",
 ):
     found_winloop: bool = False
     found_uvloop: bool = False

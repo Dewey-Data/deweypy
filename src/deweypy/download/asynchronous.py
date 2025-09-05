@@ -252,16 +252,21 @@ class AsyncDatasetDownloader:
         partition_key_before: str | None = None,
         skip_existing: bool = True,
         num_workers: int | Literal["auto"] | None = None,
-        buffer_chunk_size: int | None = None,
+        buffer_chunk_size: int | Literal["auto"] | None = None,
     ):
         self.identifier = identifier
         self.partition_key_after = partition_key_after
         self.partition_key_before = partition_key_before
         self.skip_existing = skip_existing
+
         self.buffer_chunk_size = (
-            self.DEFAULT_BUFFER_CHUNK_SIZE
-            if buffer_chunk_size is None
-            else buffer_chunk_size
+            None
+            if buffer_chunk_size == "auto"
+            else (
+                self.DEFAULT_BUFFER_CHUNK_SIZE
+                if buffer_chunk_size is None
+                else buffer_chunk_size
+            )
         )
 
         self._num_workers = (
@@ -462,6 +467,18 @@ class AsyncDatasetDownloader:
 
         num_workers = self.num_workers
         await log_queue.put(Log(f"Using {num_workers:,} async workers for downloads"))
+
+        buffer_chunk_size = self.buffer_chunk_size
+        if buffer_chunk_size is None:
+            await log_queue.put(
+                Log(
+                    "Using default (system decides) byte buffer chunk size for downloads"
+                )
+            )
+        else:
+            await log_queue.put(
+                Log(f"Using {buffer_chunk_size:,} byte buffer chunk size for downloads")
+            )
 
         current_page_number: int = 1
         current_overall_record_number: int = 1
