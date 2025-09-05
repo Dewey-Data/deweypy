@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import Literal, cast
 
+import httpx
 import typer
 from rich import print as rprint
 
@@ -18,6 +19,7 @@ from deweypy.download import (
     resolve_download_directory,
     set_download_directory,
 )
+from deweypy.download.speed_testing import run_download_speed_test
 from deweypy.download.speedy import run_speedy_download
 
 _shared_api_key_option = typer.Option(
@@ -185,3 +187,18 @@ def speedy_download(
         partition_key_before=partition_key_before,
         skip_existing=skip_existing,
     )
+
+
+@app.command()
+def speed_test(
+    url: str = typer.Argument(..., help="URL to download repeatedly for timing."),
+    n: int = typer.Argument(10, help="Number of sequential full downloads to perform."),
+    use_api_key: bool = typer.Option(False, help="Use API key?"),
+):
+    """
+    Run a synchronous HTTP download speed test for a given URL.
+
+    Uses a regular `httpx` `Client` (non-async), with full downloads (no streaming).
+    """
+    with httpx.Client(http2=True, timeout=60.0) as client:
+        run_download_speed_test(client, url, num_downloads=n, use_api_key=use_api_key)
