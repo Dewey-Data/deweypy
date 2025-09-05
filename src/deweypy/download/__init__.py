@@ -7,4 +7,4 @@ from .settings import (
     set_download_directory,
 )
 from .speedy import run_speedy_download
-from .sync import DatasetDownloader, api_request, make_client
+from .synchronous import DatasetDownloader, api_request, make_client
