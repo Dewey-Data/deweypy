@@ -1,0 +1,42 @@
+{
+  "vim.textwidth": 88,
+  "rewrap.wrappingColumn": 88,
+  "python.languageServer": "Pylance",
+  "python.testing.pytestEnabled": true,
+  "files.exclude": {
+    "**/.mypy_cache/**": true,
+    "**/.pytest_cache/**": true,
+    "**/.ruff_cache/**": true,
+    "**/.venv/**": true,
+  },
+  "files.watcherExclude": {
+    "**/dist/**": true,
+    "**/htmlcov/**": true,
+  },
+  "search.exclude": {
+    "**/dist/**": true,
+    "**/htmlcov/**": true,
+  },
+  "python.testing.pytestArgs": [
+    "."
+  ],
+  "python.testing.unittestEnabled": false,
+  "python.analysis.autoImportCompletions": true,
+  "python.analysis.inlayHints.pytestParameters": true,
+  "mypy-type-checker.importStrategy": "fromEnvironment",
+  "mypy-type-checker.args": [],
+  "ruff.lint.ignore": [
+    "I001",
+    "I002",
+    "F401",
+    "RUF100"
+  ],
+  "ruff.nativeServer": true,
+  "ruff.organizeImports": true,
+  "python.terminal.activateEnvInCurrentTerminal": true,
+  "cursorpyright.analysis.autoImportCompletions": true,
+  "cursorpyright.analysis.inlayHints.variableTypes": false,
+  "cursorpyright.analysis.useTypingExtensions": true,
+  "cursorpyright.disableOrganizeImports": true,
+  "cursorpyright.disableTaggedHints": false,
+}

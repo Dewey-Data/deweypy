@@ -194,8 +194,8 @@ def fast_download(
         try:
             # If on Windows, use `winloop` (https://github.com/Vizonex/Winloop)
             # if available.
-            from winloop import (
-                run as loop_run_fn,  # pyright: ignore[reportMissingImports]
+            from winloop import (  # pyright: ignore[reportMissingImports]
+                run as loop_run_fn,
             )
         except ImportError:
             # Otherwise, fall back to `asyncio` `run.`
