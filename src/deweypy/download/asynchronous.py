@@ -327,46 +327,47 @@ class AsyncDatasetDownloader:
                 overall_queue_key=overall_queue_key,
             )
 
-        async with asyncio.TaskGroup() as tg, make_async_client() as client:
-            logging_work_coroutine = asyncio.to_thread(do_logging_work)
-            tg.create_task(logging_work_coroutine)
+        async with asyncio.TaskGroup() as tg:
+            async with make_async_client() as client:
+                logging_work_coroutine = asyncio.to_thread(do_logging_work)
+                tg.create_task(logging_work_coroutine)
 
-            tg.create_task(
-                self._download_all(
-                    client=client,
-                    log_queue=logging_async_queue,
-                    work_queue=async_work_queue,
-                    overall_queue_key=overall_queue_key,
-                    page_fetch_counter=page_fetch_counter,
-                    worker_busy_events=worker_busy_events,
-                    all_pages_fetched_event=all_pages_fetched_event,
-                )
-            )
-
-            for worker_number in worker_numbers:
                 tg.create_task(
-                    self._do_async_work(
-                        worker_number=worker_number,
+                    self._download_all(
                         client=client,
                         log_queue=logging_async_queue,
                         work_queue=async_work_queue,
                         overall_queue_key=overall_queue_key,
                         page_fetch_counter=page_fetch_counter,
-                        busy_event=worker_busy_events[worker_number],
-                        queue_done_event=queue_done_event,
+                        worker_busy_events=worker_busy_events,
+                        all_pages_fetched_event=all_pages_fetched_event,
                     )
                 )
 
-            tg.create_task(
-                self._ensure_all_async_work_done_and_queue_empty(
-                    log_queue=logging_async_queue,
-                    work_queue=async_work_queue,
-                    overall_queue_key=overall_queue_key,
-                    worker_busy_events=worker_busy_events,
-                    all_pages_fetched_event=all_pages_fetched_event,
-                    queue_done_event=queue_done_event,
+                for worker_number in worker_numbers:
+                    tg.create_task(
+                        self._do_async_work(
+                            worker_number=worker_number,
+                            client=client,
+                            log_queue=logging_async_queue,
+                            work_queue=async_work_queue,
+                            overall_queue_key=overall_queue_key,
+                            page_fetch_counter=page_fetch_counter,
+                            busy_event=worker_busy_events[worker_number],
+                            queue_done_event=queue_done_event,
+                        )
+                    )
+
+                tg.create_task(
+                    self._ensure_all_async_work_done_and_queue_empty(
+                        log_queue=logging_async_queue,
+                        work_queue=async_work_queue,
+                        overall_queue_key=overall_queue_key,
+                        worker_busy_events=worker_busy_events,
+                        all_pages_fetched_event=all_pages_fetched_event,
+                        queue_done_event=queue_done_event,
+                    )
                 )
-            )
 
     async def _download_all(
         self,
