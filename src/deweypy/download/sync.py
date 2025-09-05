@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import cached_property
 from pathlib import Path
 from threading import Lock
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypedDict, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    cast,
+)
 
 import httpx
 from httpx._types import (
@@ -31,125 +34,13 @@ from rich.progress import (
 )
 
 from deweypy.context import MainContext, main_context
+from deweypy.download.types import (
+    APIMethod,
+    GetMetadataDict,
+)
 
 if TYPE_CHECKING:
     import ssl  # pragma: no cover
-
-
-def set_download_directory(
-    download_directory: Path | None,
-    *,
-    download_directory_source: Literal[
-        "cli_args", "cli_fallback", "environment", "manually_set"
-    ] = "manually_set",
-) -> None:
-    if not download_directory:
-        raise ValueError("Download directory cannot be empty.")
-    if not download_directory.exists():
-        raise ValueError("Download directory does not exist.")
-    if not download_directory.is_dir():
-        raise ValueError("Download directory must be a directory.")
-    main_context.download_directory = download_directory
-    main_context.download_directory_source = download_directory_source
-
-
-def resolve_download_directory(
-    *,
-    potentially_provided_value: Path | None,
-    callback_if_missing: Callable[[], str],
-    invalid_exception_class: type[RuntimeError],
-) -> tuple[Path, Literal["provided", "environment", "callback"]]:
-    # If `potentially_provided_value` is non-empty, then use it.
-    if cli_download_directory := potentially_provided_value:
-        sanity_check_download_directory_value(
-            cli_download_directory, invalid_exception_class=invalid_exception_class
-        )
-        return (cli_download_directory, "provided")
-
-    # Otherwise, check the `DEWEY_DOWNLOAD_DIRECTORY` environment variable and
-    # use that if it's present.
-    if env_download_directory := os.environ.get("DEWEY_DOWNLOAD_DIRECTORY"):
-        sanity_check_download_directory_value(
-            Path(env_download_directory),
-            invalid_exception_class=invalid_exception_class,
-            empty_message=(
-                "The provided Download Directory from the environment variable "
-                "DEWEY_DOWNLOAD_DIRECTORY must be a valid folder or path."
-            ),
-            does_not_exist_message=(
-                "The provided Download Directory from the environment variable "
-                "DEWEY_DOWNLOAD_DIRECTORY must exist and be a valid folder."
-            ),
-            not_a_directory_message=(
-                "The provided Download Directory from the environment variable "
-                "DEWEY_DOWNLOAD_DIRECTORY must be a directory."
-            ),
-        )
-        return (Path(env_download_directory), "environment")
-
-    callback_download_directory = callback_if_missing()
-    if isinstance(callback_download_directory, str) and callback_download_directory:
-        callback_download_directory = Path(callback_download_directory)
-    sanity_check_download_directory_value(
-        callback_download_directory, invalid_exception_class=invalid_exception_class
-    )
-    assert callback_download_directory, "Post-condition"
-    return (callback_download_directory, "callback")
-
-
-def sanity_check_download_directory_value(
-    download_directory: Path | None,
-    *,
-    invalid_exception_class: type[RuntimeError] | type[ValueError] = ValueError,
-    empty_message: str = "The Download Directory must be provided.",
-    does_not_exist_message: str = "The Download Directory must exist and be a valid folder.",
-    not_a_directory_message: str = "The Download Directory must be a directory.",
-) -> str:
-    if download_directory in ("", None):
-        raise invalid_exception_class(empty_message)
-    if not download_directory.exists():
-        raise invalid_exception_class(does_not_exist_message)
-    if not download_directory.is_dir():
-        raise invalid_exception_class(not_a_directory_message)
-    return download_directory
-
-
-class DownloadItemDict(TypedDict):
-    link: str
-    partition_key: str | None
-    file_name: str
-    file_extension: Literal[".csv", ".csv.gz", ".parquet", ".parquet.gz"]
-    file_size_bytes: int
-    modified_at: str  # ISO-8601 formatted datetime string
-    external_id: str
-
-
-class ZippedDownloadItemDict(DownloadItemDict):
-    is_zip_file: Literal[True]
-
-
-class GetMetadataDict(TypedDict):
-    total_files: int
-    total_size: int
-    total_partitions: int
-    partition_type: Literal["DATE", "CATEGORICAL"] | None
-    partition_column: str | None
-    partition_aggregation: Literal["DAY", "MONTH"] | None
-    min_partition_key: str | None
-    max_partition_key: str | None
-
-
-class GetFilesDict(TypedDict):
-    download_links: list[DownloadItemDict]
-    page: int
-    number_of_files_for_page: int
-    avg_file_size_for_page: int | float | None
-    partition_column: str | None
-    total_files: int
-    total_pages: int
-    total_size: int
-    expires_at: str  # ISO-8601 formatted datetime string
-    zip_file: ZippedDownloadItemDict | None
 
 
 class DatasetDownloader:
@@ -452,9 +343,6 @@ class DatasetDownloader:
             rprint(f"Bytes remaining: {int(bytes_remaining):,}")
 
         rprint("Data is downloaded!")
-
-
-APIMethod: TypeAlias = Literal["GET", "POST", "PUT", "DELETE", "PATCH"]
 
 
 def api_request(
