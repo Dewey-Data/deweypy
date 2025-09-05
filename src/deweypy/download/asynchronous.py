@@ -639,9 +639,7 @@ class AsyncDatasetDownloader:
                 Log(f"[red]Error downloading {original_file_name}: {e}[/red]")
             )
             await log_queue.put(
-                UpdateProgress(
-                    key=overall_queue_key, advance=-1 * file_amount_advanced_here
-                )
+                UpdateProgress(key=queue_key, advance=-1 * file_amount_advanced_here)
             )
             await log_queue.put(
                 UpdateProgress(
