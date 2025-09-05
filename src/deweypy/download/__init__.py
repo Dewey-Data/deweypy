@@ -6,4 +6,5 @@ from .settings import (
     sanity_check_download_directory_value,
     set_download_directory,
 )
+from .speedy import run_speedy_download
 from .sync import DatasetDownloader, api_request, make_client

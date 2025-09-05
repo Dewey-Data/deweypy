@@ -566,9 +566,66 @@ class AsyncDatasetDownloader:
             await queue.put(RemoveProgress(key=queue_key))
 
     async def _do_async_work(
-        self, *, queue: TwoColoredAsyncQueueType, worker_number: int
+        self,
+        *,
+        worker_number: int,
+        client: httpx.AsyncClient,
+        queue: TwoColoredAsyncQueueType,
+        overall_queue_key: str,
+        page_fetch_counter: dict[int, bool | list[int]],
+        busy_event: asyncio.Event,
+        queue_done_event: asyncio.Event,
     ) -> None:
-        await queue.get()
+        # This says that the worker is busy.
+        busy_event.clear()
+
+        Log = MessageLog
+
+        consecutive_empty_entries: int = 0
+
+        while True:
+            entry = None
+            try:
+                entry = await queue.get_nowait()
+            except QueueEmpty:
+                pass
+            else:
+                # This says that the worker is busy (it has an entry to process).
+                busy_event.clear()
+
+            if entry is None:
+                consecutive_empty_entries += 1
+
+                if consecutive_empty_entries >= 3:
+                    # This says that the worker is not busy (it has no entries to
+                    # process and hasn't for at least 2-3 sleeping iterations).
+                    busy_event.set()
+                    # If the `queue_done_event` is set, then we're done, so we can break
+                    # out of the loop.
+                    if queue_done_event.is_set():
+                        break
+
+                # Sleep for ~15ms.
+                await asyncio.sleep(0.015)  # 15ms
+
+                # Go back to the start of the loop and try to grab the next entry.
+                continue
+            else:
+                consecutive_empty_entries = 0
+
+            match entry:
+                case MessageFetchNextPage(info=info):
+                    raise RuntimeError("Not expecting this message type here.")
+                case MessageFetchFile(info=info):
+                    await self._download_single_file(
+                        client=client,
+                        info=info,
+                        queue=queue,
+                        overall_queue_key=overall_queue_key,
+                        page_fetch_counter=page_fetch_counter,
+                    )
+                case _:
+                    await queue.put(Log(f"[red]Unexpected message: {entry}[/red]"))
 
     async def _ensure_all_async_work_done_and_queue_empty(
         *,
