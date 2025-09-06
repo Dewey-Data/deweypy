@@ -299,13 +299,15 @@ class AsyncDatasetDownloader:
 
     @async_cached_property
     async def description(self) -> DescribedDatasetDict:
-        response = await async_api_request("GET", f"{self.base_url}/description")
+        response = await async_api_request("GET", f"{self.base_url}/describe")
         return cast(DescribedDatasetDict, response.json())
 
     @async_cached_property
     async def sub_folder_path_str(self) -> str:
-        # NOTE/TODO: Backend should send Dataset slug.
-        return "dataset-slug"
+        description = await self.description
+        if description["type"] == "customized_dataset":
+            return description["customized_slug"]
+        return description["dataset_slug"]
 
     async def download_all(self):
         log_queue: TwoColoredLogQueueType = TwoColoredQueue()

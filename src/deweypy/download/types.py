@@ -60,7 +60,6 @@ class GetDescriptionBaseDict(TypedDict):
     dataset_docs_url: str
     dataset_citations_url: str
     dataset_support_url: str
-    dataset_last_refreshed_at: str  # ISO-8601 formatted datetime string
     dataset_version_timestamp: str  # ISO-8601 formatted datetime string
 
     partner_external_id: str
@@ -72,7 +71,6 @@ class GetDescriptionBaseDict(TypedDict):
     doi_canonical: DoiDict | None
     doi_versioned: DoiDict | None
 
-    last_refreshed_at: str  # ISO-8601 formatted datetime string
     version_timestamp: str  # ISO-8601 formatted datetime string
 
 
@@ -98,6 +96,7 @@ class GetDescriptionCustomizedNonFileOnlyDatasetDict(GetDescriptionBaseDict):
 
     customized_external_id: str
     customized_name: str
+    customized_slug: str
 
 
 # NOTE: The above names are a bit verbose, but more descriptive. Here are some shorter
