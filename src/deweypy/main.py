@@ -26,7 +26,7 @@ _shared_api_key_option = typer.Option(
     None, "--api-key", help="Your Dewey API Key.", show_default=False
 )
 _shared_download_directory_option = typer.Option(
-    None,
+    f".{os.sep}dewey-downloads",
     "--download-directory",
     help="Directory to download the data to.",
     show_default=False,
