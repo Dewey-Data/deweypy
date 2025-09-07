@@ -405,6 +405,12 @@ class AsyncDatasetDownloader:
         finally:
             logging_thread_stop_event.set()
 
+        _root_path = self.context.download_directory
+        sub_folder_path_str = await self.sub_folder_path_str
+        download_directory = _root_path / sub_folder_path_str
+
+        rprint(f"Downloaded data directory: {download_directory}")
+
     async def _download_all(
         self,
         *,
