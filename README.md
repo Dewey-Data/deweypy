@@ -6,13 +6,24 @@
 
 To download your data using the Dewey Data Python Client, follow these steps in your command line or terminal:
 1. **Install the client**
-`pip install https://github.com/Dewey-Data/deweypy.git`
+
+```bash
+pip install https://github.com/Dewey-Data/deweypy.git`
+```
+
 2. **Make a directory for your downloads**
+```bash
+mkdir dewey-downloads/
+```
+
 3. **Locate `FOLDER_ID`**
+
 `FOLDER_ID` can be extracted from the end of the end of the API URL after `data/`
-`mkdir dewey-downloads/`
+
 4. **Run client**
-`-m deweypy --api-key <YOUR_API_KEY> speedy-download <FOLDER_ID>`
+```bash
+-m deweypy --api-key <YOUR_API_KEY> speedy-download <FOLDER_ID>
+```
 
 
 #### A few notes...
