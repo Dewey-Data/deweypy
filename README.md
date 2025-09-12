@@ -22,7 +22,7 @@ mkdir dewey-downloads/
 
 4. **Run client**
 ```bash
--m deweypy --api-key <YOUR_API_KEY> speedy-download <FOLDER_ID>
+python -m deweypy --api-key <YOUR_API_KEY> speedy-download <FOLDER_ID>
 ```
 
 
