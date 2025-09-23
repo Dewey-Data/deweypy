@@ -31,3 +31,9 @@ test5/
 # duckdb files
 *.duckdb
 *.duckdb.wal
+
+# Jupyter/IPython Notebook Checkpoints
+.ipynb_checkpoints
+.ipynb_checkpoints/*
+notebook-examples/.ipynb_checkpoints
+notebook-examples/.ipynb_checkpoints/*
