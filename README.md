@@ -8,7 +8,7 @@ To download your data using the Dewey Data Python Client, follow these steps in 
 1. **Install the client**
 
 ```bash
-pip install https://github.com/Dewey-Data/deweypy.git
+pip install git+https://github.com/Dewey-Data/deweypy.git
 ```
 
 2. **Make a directory for your downloads**
