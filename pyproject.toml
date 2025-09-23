@@ -44,6 +44,9 @@ dev = [
   "uvloop>=0.21.0; sys_platform != 'win32'",
 ]
 
+[project.scripts]
+dewey = "deweypy:main.app"
+
 [build-system]
 requires = ["uv_build>=0.8.21,<0.9.0"]
 build-backend = "uv_build"
