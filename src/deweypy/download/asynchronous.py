@@ -253,12 +253,13 @@ class AsyncDatasetDownloader:
         skip_existing: bool = True,
         num_workers: int | Literal["auto"] | None = None,
         buffer_chunk_size: int | Literal["auto"] | None = None,
+        folder_name: str | None = None
     ):
         self.identifier = identifier
         self.partition_key_after = partition_key_after
         self.partition_key_before = partition_key_before
         self.skip_existing = skip_existing
-
+        self.folder_name = folder_name
         self.buffer_chunk_size = (
             None
             if buffer_chunk_size == "auto"
@@ -304,6 +305,9 @@ class AsyncDatasetDownloader:
 
     @async_cached_property
     async def sub_folder_path_str(self) -> str:
+        if self.folder_name and self.folder_name.strip():
+            return self.folder_name.strip()
+
         description = await self.description
         if description["type"] == "customized_dataset":
             return description["customized_slug"]
