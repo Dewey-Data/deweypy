@@ -38,6 +38,8 @@ from deweypy.context import MainContext, main_context
 from deweypy.download.types import (
     APIMethod,
     GetMetadataDict,
+    GetFilesDict,
+    DownloadItemDict,
 )
 
 if TYPE_CHECKING:
@@ -445,3 +447,51 @@ def make_client(
         headers=headers_to_use,
         **kwargs,
     )
+
+def get_dataset_files(
+    dataset_id: str,
+    *,
+    partition_key_after: str | None = None,
+    partition_key_before: str | None = None,
+    client: httpx.Client | None = None,
+    to_list: bool = False,
+) -> list[DownloadItemDict]:
+    """Get download items for a specific dataset and page.
+
+    Args:
+        dataset_id: The dataset or folder ID
+        partition_key_after: Filter for partition keys after this value
+        partition_key_before: Filter for partition keys before this value
+        client: Optional HTTP client to use
+
+    Returns:
+        List of download item dictionaries
+    """
+    all_files = []
+    page = 1
+    while True:
+        query_params = {"page": page}
+        if partition_key_after:
+            query_params["partition_key_after"] = partition_key_after
+        if partition_key_before:
+            query_params["partition_key_before"] = partition_key_before
+
+        response = api_request(
+            "GET",
+            f"/v1/external/data/{dataset_id}/files",
+            params=query_params,
+            client=client
+        )
+        files_data: GetFilesDict = response.json()
+
+        all_files.extend(files_data["download_links"])
+
+        if files_data["total_pages"] <= page:
+            break
+
+        page += 1
+
+    if to_list:
+        return [file_item["link"] for file_item in all_files]
+
+    return all_files
