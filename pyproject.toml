@@ -3,7 +3,7 @@
 
 [project]
 name = "deweypy"
-version = "0.2.0"
+version = "0.3.0"
 description = "A Python client for Dewey Data (https://deweydata.io/)."
 readme = "README.md"
 requires-python = ">=3.12"
