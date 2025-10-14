@@ -305,8 +305,8 @@ class AsyncDatasetDownloader:
 
     @async_cached_property
     async def sub_folder_path_str(self) -> str:
-        if self.folder_name is not None:
-            return self.folder_name
+        if self.folder_name and self.folder_name.strip():
+            return self.folder_name.strip()
 
         description = await self.description
         if description["type"] == "customized_dataset":

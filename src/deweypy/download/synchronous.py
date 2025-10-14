@@ -455,7 +455,7 @@ def get_dataset_files(
     partition_key_before: str | None = None,
     client: httpx.Client | None = None,
     to_list: bool = False,
-) -> list[DownloadItemDict]:
+) -> list[DownloadItemDict] | list[str]:
     """Get download items for a specific dataset and page.
 
     Args:
@@ -463,9 +463,10 @@ def get_dataset_files(
         partition_key_after: Filter for partition keys after this value
         partition_key_before: Filter for partition keys before this value
         client: Optional HTTP client to use
+        to_list: Whether to return a list of download links
 
     Returns:
-        List of download item dictionaries
+        List of download item dictionaries or a list of download links
     """
     all_files = []
     page = 1
