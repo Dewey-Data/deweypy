@@ -37,9 +37,9 @@ from rich.progress import (
 from deweypy.context import MainContext, main_context
 from deweypy.download.types import (
     APIMethod,
-    GetMetadataDict,
-    GetFilesDict,
     DownloadItemDict,
+    GetFilesDict,
+    GetMetadataDict,
 )
 
 if TYPE_CHECKING:
@@ -111,8 +111,8 @@ class DatasetDownloader:
             original_file_name,
             file_size_bytes,
             new_file_path,
-            page_num,
-            record_num,
+            _page_num,
+            _record_num,
         ) = download_info
         new_file_name = original_file_name
 
@@ -380,7 +380,7 @@ def api_request(
         "Content-Type": "application/json",
         # NOTE/TODO: Once we have this versioned, we can include more info on
         # the User-Agent here.
-        "User-Agent": "deweypy/0.0.1a1",
+        "User-Agent": "deweypy/0.2.0a1",
         "X-API-Key": main_context.api_key,
         **(headers or {}),  # type: ignore[dict-item]
     }
@@ -433,7 +433,7 @@ def make_client(
     headers_to_use: dict[str, str] = {
         # NOTE/TODO: Once we have this versioned, we can include more info on
         # the User-Agent here.
-        "User-Agent": "deweypy/0.0.1a1",
+        "User-Agent": "deweypy/0.2.0a1",
         "X-API-Key": main_context.api_key,
         **(headers or {}),  # type: ignore[dict-item]
     }
@@ -447,6 +447,7 @@ def make_client(
         headers=headers_to_use,
         **kwargs,
     )
+
 
 def get_dataset_files(
     dataset_id: str,
@@ -481,7 +482,7 @@ def get_dataset_files(
             "GET",
             f"/v1/external/data/{dataset_id}/files",
             params=query_params,
-            client=client
+            client=client,
         )
         files_data: GetFilesDict = response.json()
 

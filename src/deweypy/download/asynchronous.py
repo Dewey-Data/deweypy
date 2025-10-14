@@ -99,7 +99,7 @@ async def async_api_request(
         "Content-Type": "application/json",
         # NOTE/TODO: Once we have this versioned, we can include more info on
         # the User-Agent here.
-        "User-Agent": "deweypy/0.0.1a1",
+        "User-Agent": "deweypy/0.2.0a1",
         "X-API-Key": main_context.api_key,
         **(headers or {}),  # type: ignore[dict-item]
     }
@@ -156,7 +156,7 @@ def make_async_client(
     headers_to_use: dict[str, str] = {
         # NOTE/TODO: Once we have this versioned, we can include more info on
         # the User-Agent here.
-        "User-Agent": "deweypy/0.0.1a1",
+        "User-Agent": "deweypy/0.2.0a1",
         "X-API-Key": main_context.api_key,
         **(headers or {}),  # type: ignore[dict-item]
     }
@@ -253,7 +253,7 @@ class AsyncDatasetDownloader:
         skip_existing: bool = True,
         num_workers: int | Literal["auto"] | None = None,
         buffer_chunk_size: int | Literal["auto"] | None = None,
-        folder_name: str | None = None
+        folder_name: str | None = None,
     ):
         self.identifier = identifier
         self.partition_key_after = partition_key_after
