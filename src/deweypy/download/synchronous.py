@@ -380,7 +380,7 @@ def api_request(
         "Content-Type": "application/json",
         # NOTE/TODO: Once we have this versioned, we can include more info on
         # the User-Agent here.
-        "User-Agent": "deweypy/0.3.0",
+        "User-Agent": "deweypy/0.3.1",
         "X-API-Key": main_context.api_key,
         **(headers or {}),  # type: ignore[dict-item]
     }
@@ -433,7 +433,7 @@ def make_client(
     headers_to_use: dict[str, str] = {
         # NOTE/TODO: Once we have this versioned, we can include more info on
         # the User-Agent here.
-        "User-Agent": "deweypy/0.3.0",
+        "User-Agent": "deweypy/0.3.1",
         "X-API-Key": main_context.api_key,
         **(headers or {}),  # type: ignore[dict-item]
     }
