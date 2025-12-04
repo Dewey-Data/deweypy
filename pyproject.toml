@@ -48,7 +48,7 @@ dev = [
 dewey = "deweypy:main.app"
 
 [build-system]
-requires = ["uv_build>=0.9.2,<0.10.0"]
+requires = ["uv_build>=0.9.15,<0.10.0"]
 build-backend = "uv_build"
 
 
@@ -100,7 +100,7 @@ disallow_untyped_defs = false
 # ==== pytest ====
 # https://github.com/pytest-dev/pytest
 [tool.pytest.ini_options]
-minversion = "8.3"
+minversion = "9.0"
 addopts = "--strict-config --strict-markers"
 python_files = ["tests.py", "test_*.py"]
 norecursedirs = [
