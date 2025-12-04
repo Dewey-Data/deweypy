@@ -99,7 +99,7 @@ async def async_api_request(
         "Content-Type": "application/json",
         # NOTE/TODO: Once we have this versioned, we can include more info on
         # the User-Agent here.
-        "User-Agent": "deweypy/0.0.1a1",
+        "User-Agent": "deweypy/0.3.1",
         "X-API-Key": main_context.api_key,
         **(headers or {}),  # type: ignore[dict-item]
     }
@@ -156,7 +156,7 @@ def make_async_client(
     headers_to_use: dict[str, str] = {
         # NOTE/TODO: Once we have this versioned, we can include more info on
         # the User-Agent here.
-        "User-Agent": "deweypy/0.0.1a1",
+        "User-Agent": "deweypy/0.3.1",
         "X-API-Key": main_context.api_key,
         **(headers or {}),  # type: ignore[dict-item]
     }
@@ -253,12 +253,13 @@ class AsyncDatasetDownloader:
         skip_existing: bool = True,
         num_workers: int | Literal["auto"] | None = None,
         buffer_chunk_size: int | Literal["auto"] | None = None,
+        folder_name: str | None = None,
     ):
         self.identifier = identifier
         self.partition_key_after = partition_key_after
         self.partition_key_before = partition_key_before
         self.skip_existing = skip_existing
-
+        self.folder_name = folder_name
         self.buffer_chunk_size = (
             None
             if buffer_chunk_size == "auto"
@@ -304,6 +305,9 @@ class AsyncDatasetDownloader:
 
     @async_cached_property
     async def sub_folder_path_str(self) -> str:
+        if self.folder_name and self.folder_name.strip():
+            return self.folder_name.strip()
+
         description = await self.description
         if description["type"] == "customized_dataset":
             return description["customized_slug"]
