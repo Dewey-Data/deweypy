@@ -52,6 +52,7 @@ from rich.progress import (
 )
 
 from deweypy.context import MainContext, main_context
+from deweypy.download.errors import potentially_augment_error
 from deweypy.download.types import (
     APIMethod,
     DescribedDatasetDict,
@@ -136,7 +137,11 @@ async def async_api_request(
             **kwargs,
         )
 
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except Exception as e:
+        potentially_augment_error(e)
+        raise
 
     return response
 
@@ -705,7 +710,11 @@ class AsyncDatasetDownloader:
             )
             status_code = dewey_response.status_code
             if not status_code or status_code < 200 or status_code >= 400:
-                dewey_response.raise_for_status()
+                try:
+                    dewey_response.raise_for_status()
+                except Exception as e:
+                    potentially_augment_error(e)
+                    raise
         except Exception as e:
             raise RuntimeError(f"Error downloading {original_file_name}: {e}") from e
         if dewey_response.status_code not in (301, 302):

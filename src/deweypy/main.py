@@ -184,7 +184,9 @@ def speedy_download(
     buffer_chunk_size: int | None = typer.Option(
         -1, help="Async file download buffer chunk size. Use -1 to get 'auto' behavior."
     ),
-    folder_name: str | None = typer.Option(None, help="Custom folder name for the download."),
+    folder_name: str | None = typer.Option(
+        None, help="Custom folder name for the download."
+    ),
 ):
     rprint("Hello from `speedy_download`!")
 

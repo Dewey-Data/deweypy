@@ -35,6 +35,7 @@ from rich.progress import (
 )
 
 from deweypy.context import MainContext, main_context
+from deweypy.download.errors import potentially_augment_error
 from deweypy.download.types import (
     APIMethod,
     DownloadItemDict,
@@ -414,7 +415,11 @@ def api_request(
             **kwargs,
         )
 
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except Exception as e:
+        potentially_augment_error(e)
+        raise
 
     return response
 
