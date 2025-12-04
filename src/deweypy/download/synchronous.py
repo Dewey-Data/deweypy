@@ -37,6 +37,8 @@ from rich.progress import (
 from deweypy.context import MainContext, main_context
 from deweypy.download.types import (
     APIMethod,
+    DownloadItemDict,
+    GetFilesDict,
     GetMetadataDict,
 )
 
@@ -109,8 +111,8 @@ class DatasetDownloader:
             original_file_name,
             file_size_bytes,
             new_file_path,
-            page_num,
-            record_num,
+            _page_num,
+            _record_num,
         ) = download_info
         new_file_name = original_file_name
 
@@ -378,7 +380,7 @@ def api_request(
         "Content-Type": "application/json",
         # NOTE/TODO: Once we have this versioned, we can include more info on
         # the User-Agent here.
-        "User-Agent": "deweypy/0.0.1a1",
+        "User-Agent": "deweypy/0.3.1",
         "X-API-Key": main_context.api_key,
         **(headers or {}),  # type: ignore[dict-item]
     }
@@ -431,7 +433,7 @@ def make_client(
     headers_to_use: dict[str, str] = {
         # NOTE/TODO: Once we have this versioned, we can include more info on
         # the User-Agent here.
-        "User-Agent": "deweypy/0.0.1a1",
+        "User-Agent": "deweypy/0.3.1",
         "X-API-Key": main_context.api_key,
         **(headers or {}),  # type: ignore[dict-item]
     }
@@ -445,3 +447,53 @@ def make_client(
         headers=headers_to_use,
         **kwargs,
     )
+
+
+def get_dataset_files(
+    dataset_id: str,
+    *,
+    partition_key_after: str | None = None,
+    partition_key_before: str | None = None,
+    client: httpx.Client | None = None,
+    to_list: bool = False,
+) -> list[DownloadItemDict] | list[str]:
+    """Get download items for a specific dataset and page.
+
+    Args:
+        dataset_id: The dataset or folder ID
+        partition_key_after: Filter for partition keys after this value
+        partition_key_before: Filter for partition keys before this value
+        client: Optional HTTP client to use
+        to_list: Whether to return a list of download links
+
+    Returns:
+        List of download item dictionaries or a list of download links
+    """
+    all_files = []
+    page = 1
+    while True:
+        query_params = {"page": page}
+        if partition_key_after:
+            query_params["partition_key_after"] = partition_key_after
+        if partition_key_before:
+            query_params["partition_key_before"] = partition_key_before
+
+        response = api_request(
+            "GET",
+            f"/v1/external/data/{dataset_id}/files",
+            params=query_params,
+            client=client,
+        )
+        files_data: GetFilesDict = response.json()
+
+        all_files.extend(files_data["download_links"])
+
+        if files_data["total_pages"] <= page:
+            break
+
+        page += 1
+
+    if to_list:
+        return [file_item["link"] for file_item in all_files]
+
+    return all_files
