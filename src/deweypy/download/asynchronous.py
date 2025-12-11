@@ -100,7 +100,7 @@ async def async_api_request(
         "Content-Type": "application/json",
         # NOTE/TODO: Once we have this versioned, we can include more info on
         # the User-Agent here.
-        "User-Agent": "deweypy/0.3.1",
+        "User-Agent": "deweypy/0.5.0",
         "X-API-Key": main_context.api_key,
         **(headers or {}),  # type: ignore[dict-item]
     }
@@ -161,7 +161,7 @@ def make_async_client(
     headers_to_use: dict[str, str] = {
         # NOTE/TODO: Once we have this versioned, we can include more info on
         # the User-Agent here.
-        "User-Agent": "deweypy/0.3.1",
+        "User-Agent": "deweypy/0.5.0",
         "X-API-Key": main_context.api_key,
         **(headers or {}),  # type: ignore[dict-item]
     }
@@ -288,7 +288,7 @@ class AsyncDatasetDownloader:
         identifier = self.identifier
         if "api.deweydata.io" in identifier:
             return identifier.removesuffix("/")
-        return f"/v1/external/data/{identifier}"
+        return f"/v2/external/data/{identifier}"
 
     @property
     def num_workers(self) -> int:
@@ -460,7 +460,7 @@ class AsyncDatasetDownloader:
         await log_queue.put(Log(f"Downloading to {download_directory}..."))
 
         base_endpoint = (
-            f"https://api.deweydata.io/api/v1/external/data/{self.identifier}"
+            f"https://api.deweydata.io/api/v2/external/data/{self.identifier}"
         )
         await log_queue.put(Log(f"Base endpoint: {base_endpoint}"))
 
