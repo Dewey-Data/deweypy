@@ -70,7 +70,7 @@ class DatasetDownloader:
         identifier = self.identifier
         if "api.deweydata.io" in identifier:
             return identifier.removesuffix("/")
-        return f"/v2/external/data/{identifier}"
+        return f"/v1/external/data/{identifier}"
 
     @cached_property
     def metadata(self) -> GetMetadataDict:
@@ -184,7 +184,7 @@ class DatasetDownloader:
         rprint(f"Downloading to {download_directory}...")
 
         base_endpoint = (
-            f"https://api.deweydata.io/api/v2/external/data/{self.identifier}"
+            f"https://api.deweydata.io/api/v1/external/data/{self.identifier}"
         )
         rprint(f"Base endpoint: {base_endpoint}")
 
@@ -381,7 +381,7 @@ def api_request(
         "Content-Type": "application/json",
         # NOTE/TODO: Once we have this versioned, we can include more info on
         # the User-Agent here.
-        "User-Agent": "deweypy/0.5.0",
+        "User-Agent": "deweypy/0.6.0",
         "X-API-Key": main_context.api_key,
         **(headers or {}),  # type: ignore[dict-item]
     }
@@ -438,7 +438,7 @@ def make_client(
     headers_to_use: dict[str, str] = {
         # NOTE/TODO: Once we have this versioned, we can include more info on
         # the User-Agent here.
-        "User-Agent": "deweypy/0.5.0",
+        "User-Agent": "deweypy/0.6.0",
         "X-API-Key": main_context.api_key,
         **(headers or {}),  # type: ignore[dict-item]
     }
@@ -485,7 +485,7 @@ def get_dataset_files(
 
         response = api_request(
             "GET",
-            f"/v2/external/data/{dataset_id}/files",
+            f"/v1/external/data/{dataset_id}/files",
             params=query_params,
             client=client,
         )
