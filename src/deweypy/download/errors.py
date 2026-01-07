@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import NoReturn
-
 import httpx
 from rich import print as rprint
 
