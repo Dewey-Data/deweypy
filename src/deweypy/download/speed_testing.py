@@ -30,26 +30,33 @@ def run_download_speed_test(
     total_bytes: int = 0
     total_seconds: float = 0.0
 
-    rprint("Unwrapping final URL...")
-    try:
-        dewey_response = client.get(
-            url,
-            follow_redirects=False,
-            timeout=httpx.Timeout(30.0),
-        )
-        status_code = dewey_response.status_code
-        if not status_code or status_code < 200 or status_code >= 400:
-            dewey_response.raise_for_status()
-    except Exception as e:
-        raise RuntimeError(f"Error downloading {url}: {e}") from e
-    if dewey_response.status_code not in (301, 302):
-        raise RuntimeError(
-            "Expecting a 301 or 302 redirect from Dewey at the time of writing."
-        )
-    final_url = dewey_response.headers.get("Location")
-    if not final_url or not isinstance(final_url, str):
-        raise RuntimeError(f"Expected a string URL for the final URL, got {final_url}.")
-    rprint("Unwrapped final URL.")
+    # Check if this is already a direct download URL (no redirect needed).
+    if url.startswith("https://downloads.deweydata.io/"):
+        final_url = url
+        rprint("URL is already a direct download link, skipping redirect unwrap.")
+    else:
+        rprint("Unwrapping final URL...")
+        try:
+            dewey_response = client.get(
+                url,
+                follow_redirects=False,
+                timeout=httpx.Timeout(30.0),
+            )
+            status_code = dewey_response.status_code
+            if not status_code or status_code < 200 or status_code >= 400:
+                dewey_response.raise_for_status()
+        except Exception as e:
+            raise RuntimeError(f"Error downloading {url}: {e}") from e
+        if dewey_response.status_code not in (301, 302):
+            raise RuntimeError(
+                "Expecting a 301 or 302 redirect from Dewey at the time of writing."
+            )
+        final_url = dewey_response.headers.get("Location")
+        if not final_url or not isinstance(final_url, str):
+            raise RuntimeError(
+                f"Expected a string URL for the final URL, got {final_url}."
+            )
+        rprint("Unwrapped final URL.")
 
     for run_index in range(1, num_downloads + 1):
         start_perf = time.perf_counter()
