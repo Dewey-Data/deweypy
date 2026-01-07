@@ -12,7 +12,6 @@ repos:
       - id: check-json
         exclude: |
           (?x)^(
-            .claude/.*|
             .vscode/.*|
             tsconfig.json|
             tsconfig.app.json|
