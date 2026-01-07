@@ -700,32 +700,38 @@ class AsyncDatasetDownloader:
                     did_skip=True,
                 )
 
-        # TODO (Dewey Team): Make sure this is wrapped with retries and exponential
-        # backoff, etc.
-        try:
-            dewey_response = await client_for_dewey.get(
-                link,
-                follow_redirects=False,
-                timeout=httpx.Timeout(60.0),
-            )
-            status_code = dewey_response.status_code
-            if not status_code or status_code < 200 or status_code >= 400:
-                try:
-                    dewey_response.raise_for_status()
-                except Exception as e:
-                    potentially_augment_error(e)
-                    raise
-        except Exception as e:
-            raise RuntimeError(f"Error downloading {original_file_name}: {e}") from e
-        if dewey_response.status_code not in (301, 302):
-            raise RuntimeError(
-                "Expecting a 301 or 302 redirect from Dewey at the time of writing."
-            )
-        final_url = dewey_response.headers.get("Location")
-        if not final_url or not isinstance(final_url, str):
-            raise RuntimeError(
-                f"Expected a string URL for the final URL, got {final_url}."
-            )
+        # Check if this is already a direct download URL (no redirect needed).
+        if link.startswith("https://downloads.deweydata.io/"):
+            final_url = link
+        else:
+            # TODO (Dewey Team): Make sure this is wrapped with retries and exponential
+            # backoff, etc.
+            try:
+                dewey_response = await client_for_dewey.get(
+                    link,
+                    follow_redirects=False,
+                    timeout=httpx.Timeout(60.0),
+                )
+                status_code = dewey_response.status_code
+                if not status_code or status_code < 200 or status_code >= 400:
+                    try:
+                        dewey_response.raise_for_status()
+                    except Exception as e:
+                        potentially_augment_error(e)
+                        raise
+            except Exception as e:
+                raise RuntimeError(
+                    f"Error downloading {original_file_name}: {e}"
+                ) from e
+            if dewey_response.status_code not in (301, 302):
+                raise RuntimeError(
+                    "Expecting a 301 or 302 redirect from Dewey at the time of writing."
+                )
+            final_url = dewey_response.headers.get("Location")
+            if not final_url or not isinstance(final_url, str):
+                raise RuntimeError(
+                    f"Expected a string URL for the final URL, got {final_url}."
+                )
 
         file_amount_advanced_here: int = 0
         total_amount_advanced_here: int = 0
