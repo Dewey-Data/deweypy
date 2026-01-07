@@ -109,7 +109,10 @@ class MainContext:
             self.download_directory_repr_preview = "not_set"
             return
         download_module = _get_download_module()
-        download_module.sanity_check_download_directory_value(self._download_directory)
+        # Pass `auto_create=False` to avoid accidental directory creation during repr.
+        download_module.sanity_check_download_directory_value(
+            self._download_directory, auto_create=False
+        )
         assert self._download_directory is not None, "Post-condition"
         preview_value = self._download_directory.as_posix()
         self.download_directory_repr_preview = preview_value

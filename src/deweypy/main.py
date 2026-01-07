@@ -26,10 +26,19 @@ _shared_api_key_option = typer.Option(
     None, "--api-key", help="Your Dewey API Key.", show_default=False
 )
 _shared_download_directory_option = typer.Option(
-    f".{os.sep}dewey-downloads",
+    None,
     "--download-directory",
-    help="Directory to download the data to.",
+    help=(
+        "Directory to download the data to. Defaults to ./dewey-downloads if not "
+        "provided via CLI or environment variable."
+    ),
     show_default=False,
+)
+_shared_auto_create_download_directory_option = typer.Option(
+    True,
+    "--auto-create-download-directory/--no-auto-create-download-directory",
+    help="Automatically create the download directory if it doesn't exist.",
+    show_default=True,
 )
 _shared_print_debug_info_option = typer.Option(
     False, "--print-debug-info", help="Print debug info?", show_default=False
@@ -76,8 +85,8 @@ def _handle_api_key_option(
 
 
 def _handle_download_directory_option(
-    download_directory: str = typer.Option(
-        f".{os.sep}dewey-downloads",
+    download_directory: str | None = typer.Option(
+        None,
         "--download-directory",
         prompt=(
             f"What directory do you want to download the data to? Defaults to the "
@@ -89,8 +98,9 @@ def _handle_download_directory_option(
             "Directory to download the data to. Defaults to the dewey-downloads folder "
             "within the current directory."
         ),
-        show_default=True,
+        show_default=False,
     ),
+    auto_create: bool = True,
 ):
     def download_directory_callback() -> str:
         return cast(
@@ -106,13 +116,14 @@ def _handle_download_directory_option(
         )
 
     download_directory_path: Path | None = None
-    if isinstance(download_directory, str) and download_directory:
+    if download_directory:
         download_directory_path = Path(download_directory)
 
     resolved_download_directory, resolved_source = resolve_download_directory(
         potentially_provided_value=download_directory_path,
         callback_if_missing=download_directory_callback,
         invalid_exception_class=RuntimeError,
+        auto_create=auto_create,
     )
     assert resolved_source in ("provided", "environment", "callback"), "Post-condition"
     download_directory_source: Literal["cli_args", "cli_fallback", "environment"]
@@ -124,7 +135,9 @@ def _handle_download_directory_option(
         assert resolved_source == "callback", "Pre-condition"
         download_directory_source = "cli_fallback"
     set_download_directory(
-        resolved_download_directory, download_directory_source=download_directory_source
+        resolved_download_directory,
+        download_directory_source=download_directory_source,
+        auto_create=auto_create,
     )
     set_entrypoint("cli")
 
@@ -134,14 +147,17 @@ def _handle_download_directory_option(
 @app.callback()
 def main(
     *,
-    api_key: str = _shared_api_key_option,
-    download_directory: str = _shared_download_directory_option,
+    api_key: str | None = _shared_api_key_option,
+    download_directory: str | None = _shared_download_directory_option,
+    auto_create_download_directory: bool = _shared_auto_create_download_directory_option,
     print_debug_info: bool = _shared_print_debug_info_option,
 ):
     set_entrypoint("cli")
 
     _handle_api_key_option(api_key)
-    _handle_download_directory_option(download_directory)
+    _handle_download_directory_option(
+        download_directory, auto_create=auto_create_download_directory
+    )
 
     if print_debug_info:
         rprint("--- Initial Debug Info ---")
