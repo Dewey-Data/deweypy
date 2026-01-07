@@ -1,0 +1,45 @@
+version: '3'
+
+tasks:
+  # Run Tests
+  t:
+    desc: Run tests with pytest
+    cmds:
+      - pytest src
+
+  # Run Tests With Coverage
+  tc:
+    desc: Run tests with coverage report
+    cmds:
+      - pytest src --cov=src/e --cov-report=term-missing
+
+  # Lint
+  l:
+    desc: Run ruff linter
+    cmds:
+      - ruff check src
+
+  # Format
+  f:
+    desc: Format code with ruff
+    cmds:
+      - ruff format src
+
+  # Lint and Fix
+  lf:
+    desc: Run ruff linter with auto-fix
+    cmds:
+      - ruff check src --fix
+
+  # Check (Lint + Tests)
+  c:
+    desc: Run linter and tests
+    cmds:
+      - task: l
+      - task: t
+
+  # Sync Dependencies
+  s:
+    desc: Sync dependencies with uv
+    cmds:
+      - uv sync

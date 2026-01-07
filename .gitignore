@@ -37,3 +37,6 @@ test5/
 .ipynb_checkpoints/*
 notebook-examples/.ipynb_checkpoints
 notebook-examples/.ipynb_checkpoints/*
+
+# We use `AGENTS.md` instead of `CLAUDE.md`.
+CLAUDE.md
