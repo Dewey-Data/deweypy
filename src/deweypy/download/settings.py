@@ -8,6 +8,8 @@ from typing import (
     Literal,
 )
 
+from rich import print as rprint
+
 from deweypy.context import main_context
 
 if TYPE_CHECKING:
@@ -20,11 +22,16 @@ def set_download_directory(
     download_directory_source: Literal[
         "cli_args", "cli_fallback", "environment", "manually_set"
     ] = "manually_set",
+    auto_create: bool = False,
 ) -> None:
     if not download_directory:
         raise ValueError("Download directory cannot be empty.")
     if not download_directory.exists():
-        raise ValueError("Download directory does not exist.")
+        if auto_create:
+            rprint(f"[dim]Creating download directory: {download_directory}[/dim]")
+            download_directory.mkdir(parents=True, exist_ok=True)
+        else:
+            raise ValueError("Download directory does not exist.")
     if not download_directory.is_dir():
         raise ValueError("Download directory must be a directory.")
     main_context.download_directory = download_directory
@@ -36,11 +43,14 @@ def resolve_download_directory(
     potentially_provided_value: Path | None,
     callback_if_missing: Callable[[], str],
     invalid_exception_class: type[RuntimeError],
+    auto_create: bool = False,
 ) -> tuple[Path, Literal["provided", "environment", "callback"]]:
     # If `potentially_provided_value` is non-empty, then use it.
     if cli_download_directory := potentially_provided_value:
         sanity_check_download_directory_value(
-            cli_download_directory, invalid_exception_class=invalid_exception_class
+            cli_download_directory,
+            invalid_exception_class=invalid_exception_class,
+            auto_create=auto_create,
         )
         return (cli_download_directory, "provided")
 
@@ -62,6 +72,7 @@ def resolve_download_directory(
                 "The provided Download Directory from the environment variable "
                 "DEWEY_DOWNLOAD_DIRECTORY must be a directory."
             ),
+            auto_create=auto_create,
         )
         return (Path(env_download_directory), "environment")
 
@@ -69,7 +80,9 @@ def resolve_download_directory(
     if isinstance(callback_download_directory, str) and callback_download_directory:
         callback_download_directory = Path(callback_download_directory)
     sanity_check_download_directory_value(
-        callback_download_directory, invalid_exception_class=invalid_exception_class
+        callback_download_directory,
+        invalid_exception_class=invalid_exception_class,
+        auto_create=auto_create,
     )
     assert callback_download_directory, "Post-condition"
     return (callback_download_directory, "callback")
@@ -82,12 +95,17 @@ def sanity_check_download_directory_value(
     empty_message: str = "The Download Directory must be provided.",
     does_not_exist_message: str = "The Download Directory must exist and be a valid folder.",
     not_a_directory_message: str = "The Download Directory must be a directory.",
+    auto_create: bool = False,
 ) -> Path:
     if download_directory in ("", None):
         raise invalid_exception_class(empty_message)
     assert isinstance(download_directory, Path), "Pre-condition"
     if not download_directory.exists():
-        raise invalid_exception_class(does_not_exist_message)
+        if auto_create:
+            rprint(f"[dim]Creating download directory: {download_directory}[/dim]")
+            download_directory.mkdir(parents=True, exist_ok=True)
+        else:
+            raise invalid_exception_class(does_not_exist_message)
     if not download_directory.is_dir():
         raise invalid_exception_class(not_a_directory_message)
     return download_directory
