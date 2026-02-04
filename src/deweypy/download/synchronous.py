@@ -215,6 +215,9 @@ class DatasetDownloader:
             rprint(f"[red]Error downloading {original_file_name}: {e}[/red]")
             return (original_file_name, new_file_name, new_file_path, False)
 
+        # Unreachable: tenacity always returns or raises.
+        return (original_file_name, new_file_name, new_file_path, False)
+
     def download(self):
         metadata = self.metadata
         rprint(f"Metadata: {metadata}")
@@ -528,7 +531,7 @@ def get_dataset_files(
     all_files = []
     page = 1
     while True:
-        query_params = {"page": page}
+        query_params: dict[str, str | int] = {"page": page}
         if partition_key_after:
             query_params["partition_key_after"] = partition_key_after
         if partition_key_before:
