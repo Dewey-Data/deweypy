@@ -751,23 +751,18 @@ class AsyncDatasetDownloader:
                                 )
                             )
                         )
-                    try:
-                        dewey_response = await client_for_dewey.get(
-                            link,
-                            follow_redirects=False,
-                            timeout=httpx.Timeout(60.0),
-                        )
-                        status_code = dewey_response.status_code
-                        if not status_code or status_code < 200 or status_code >= 400:
-                            try:
-                                dewey_response.raise_for_status()
-                            except Exception as e:
-                                potentially_augment_error(e)
-                                raise
-                    except Exception as e:
-                        raise RuntimeError(
-                            f"Error downloading {original_file_name}: {e}"
-                        ) from e
+                    dewey_response = await client_for_dewey.get(
+                        link,
+                        follow_redirects=False,
+                        timeout=httpx.Timeout(60.0),
+                    )
+                    status_code = dewey_response.status_code
+                    if not status_code or status_code < 200 or status_code >= 400:
+                        try:
+                            dewey_response.raise_for_status()
+                        except Exception as e:
+                            potentially_augment_error(e)
+                            raise
                     if dewey_response.status_code not in (301, 302):
                         raise RuntimeError(
                             "Expecting a 301 or 302 redirect from Dewey at the time of writing."
@@ -875,7 +870,6 @@ class AsyncDatasetDownloader:
                                 key=queue_key, advance=-1 * file_amount_advanced_here
                             )
                         )
-                        await log_queue.put(RemoveProgress(key=queue_key))
                     await log_queue.put(
                         UpdateProgress(
                             key=overall_queue_key,

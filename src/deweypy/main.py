@@ -179,6 +179,7 @@ def download(
     max_retries: int = typer.Option(
         10,
         "--max-retries",
+        min=1,
         help="Maximum number of retry attempts for failed downloads.",
     ),
 ):
@@ -212,6 +213,7 @@ def speedy_download(
     max_retries: int = typer.Option(
         10,
         "--max-retries",
+        min=1,
         help="Maximum number of retry attempts for failed downloads.",
     ),
 ):

@@ -7,7 +7,7 @@ import httpx
 from tenacity import (
     AsyncRetrying,
     Retrying,
-    retry_if_exception_type,
+    retry_if_exception,
     stop_after_attempt,
     wait_random_exponential,
 )
@@ -32,6 +32,9 @@ RETRYABLE_EXCEPTIONS: tuple[type[BaseException], ...] = (
     TimeoutError,
 )
 
+RETRYABLE_STATUS_CODES: frozenset[int] = frozenset({429})
+RETRYABLE_STATUS_CODE_MIN: int = 500
+
 
 @dataclass(frozen=True, slots=True)
 class RetryConfig:
@@ -50,9 +53,29 @@ class RetryConfig:
     max_delay_seconds: float = 120.0
     retryable_exceptions: tuple[type[BaseException], ...] = RETRYABLE_EXCEPTIONS
 
+    def __post_init__(self) -> None:
+        if self.max_attempts < 1:
+            object.__setattr__(self, "max_attempts", 1)
+
 
 # Default retry configuration.
 DEFAULT_RETRY_CONFIG = RetryConfig()
+
+
+def is_retryable_status_code(status_code: int) -> bool:
+    return (
+        status_code in RETRYABLE_STATUS_CODES
+        or status_code >= RETRYABLE_STATUS_CODE_MIN
+    )
+
+
+def _is_retryable_exception(
+    exception: BaseException,
+    config: RetryConfig,
+) -> bool:
+    if isinstance(exception, httpx.HTTPStatusError):
+        return is_retryable_status_code(exception.response.status_code)
+    return isinstance(exception, config.retryable_exceptions)
 
 
 def get_retry_info(retry_state: RetryCallState) -> tuple[int, BaseException | None]:
@@ -98,7 +121,7 @@ def sync_retrying(config: RetryConfig | None = None) -> Retrying:
             exp_base=2,
             max=config.max_delay_seconds,
         ),
-        retry=retry_if_exception_type(config.retryable_exceptions),
+        retry=retry_if_exception(lambda exc: _is_retryable_exception(exc, config)),
         reraise=True,
     )
 
@@ -130,7 +153,7 @@ def async_retrying(config: RetryConfig | None = None) -> AsyncRetrying:
             exp_base=2,
             max=config.max_delay_seconds,
         ),
-        retry=retry_if_exception_type(config.retryable_exceptions),
+        retry=retry_if_exception(lambda exc: _is_retryable_exception(exc, config)),
         reraise=True,
     )
 

@@ -139,79 +139,81 @@ class DatasetDownloader:
             return (original_file_name, new_file_name, new_file_path, True)
 
         # Download with retry logic.
-        for attempt in sync_retrying(self.retry_config):
-            # Reset progress tracking for each attempt.
-            file_task = None
-            bytes_advanced: int = 0
+        try:
+            for attempt in sync_retrying(self.retry_config):
+                # Reset progress tracking for each attempt.
+                file_task = None
+                bytes_advanced: int = 0
 
-            with attempt:
-                attempt_num, prev_exception = get_retry_info(attempt.retry_state)
-                if attempt_num > 1:
-                    # Log retry message.
-                    rprint(
-                        format_retry_message(
-                            attempt=attempt_num,
-                            max_attempts=self.retry_config.max_attempts,
-                            file_name=original_file_name,
-                            exception=prev_exception,
-                            page_num=page_num,
-                            record_num=record_num,
+                with attempt:
+                    attempt_num, prev_exception = get_retry_info(attempt.retry_state)
+                    if attempt_num > 1:
+                        # Log retry message.
+                        rprint(
+                            format_retry_message(
+                                attempt=attempt_num,
+                                max_attempts=self.retry_config.max_attempts,
+                                file_name=original_file_name,
+                                exception=prev_exception,
+                                page_num=page_num,
+                                record_num=record_num,
+                            )
                         )
-                    )
-                    # Delete any partial file from the previous attempt.
+                        # Delete any partial file from the previous attempt.
+                        try:
+                            if new_file_path.exists():
+                                new_file_path.unlink()
+                        except FileNotFoundError:
+                            pass
+
+                    # Create individual file task.
+                    with progress_lock:
+                        file_task = progress.add_task(
+                            f"Downloading {original_file_name}",
+                            total=file_size_bytes,
+                            filename=original_file_name,
+                        )
+
                     try:
-                        if new_file_path.exists():
-                            new_file_path.unlink()
-                    except FileNotFoundError:
-                        pass
+                        # Download the file.
+                        with make_client() as client:
+                            with (
+                                client.stream(
+                                    "GET",
+                                    link,
+                                    follow_redirects=True,
+                                    timeout=httpx.Timeout(120.0),
+                                ) as r,
+                                open(new_file_path, "wb") as f,
+                            ):
+                                for raw_bytes in r.iter_bytes():
+                                    chunk_size = len(raw_bytes)
+                                    f.write(raw_bytes)
+                                    bytes_advanced += chunk_size
+                                    # Update progress bars (thread-safe).
+                                    with progress_lock:
+                                        progress.update(file_task, advance=chunk_size)
+                                        progress.update(
+                                            overall_task, advance=chunk_size
+                                        )
 
-                # Create individual file task.
-                with progress_lock:
-                    file_task = progress.add_task(
-                        f"Downloading {original_file_name}",
-                        total=file_size_bytes,
-                        filename=original_file_name,
-                    )
-
-                try:
-                    # Download the file.
-                    with make_client() as client:
-                        with (
-                            client.stream(
-                                "GET",
-                                link,
-                                follow_redirects=True,
-                                timeout=httpx.Timeout(120.0),
-                            ) as r,
-                            open(new_file_path, "wb") as f,
-                        ):
-                            for raw_bytes in r.iter_bytes():
-                                chunk_size = len(raw_bytes)
-                                f.write(raw_bytes)
-                                bytes_advanced += chunk_size
-                                # Update progress bars (thread-safe).
-                                with progress_lock:
-                                    progress.update(file_task, advance=chunk_size)
-                                    progress.update(overall_task, advance=chunk_size)
-
-                    # Remove individual file task when complete.
-                    with progress_lock:
-                        progress.remove_task(file_task)
-
-                    return (original_file_name, new_file_name, new_file_path, True)
-
-                except Exception:
-                    # Roll back progress on failure.
-                    with progress_lock:
-                        if file_task is not None:
+                        # Remove individual file task when complete.
+                        with progress_lock:
                             progress.remove_task(file_task)
-                        progress.update(overall_task, advance=-1 * bytes_advanced)
-                    # Re-raise to trigger retry.
-                    raise
 
-        # If we get here, all retries failed.
-        rprint(f"[red]All retries exhausted for {original_file_name}[/red]")
-        return (original_file_name, new_file_name, new_file_path, False)
+                        return (original_file_name, new_file_name, new_file_path, True)
+
+                    except Exception:
+                        # Roll back progress on failure.
+                        with progress_lock:
+                            if file_task is not None:
+                                progress.remove_task(file_task)
+                            progress.update(overall_task, advance=-1 * bytes_advanced)
+                        # Re-raise to trigger retry.
+                        raise
+        except Exception as e:
+            rprint(f"[red]Error downloading {original_file_name}: {e}[/red]")
+            return (original_file_name, new_file_name, new_file_path, False)
 
     def download(self):
         metadata = self.metadata
