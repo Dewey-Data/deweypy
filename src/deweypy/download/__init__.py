@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .asynchronous import AsyncDatasetDownloader, async_api_request, make_async_client
-from .retry import (
+from .retries import (
     DEFAULT_RETRY_CONFIG,
     RETRYABLE_EXCEPTIONS,
     RetryConfig,

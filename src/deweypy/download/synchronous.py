@@ -36,7 +36,7 @@ from rich.progress import (
 
 from deweypy.context import MainContext, main_context
 from deweypy.download.errors import potentially_augment_error
-from deweypy.download.retry import (
+from deweypy.download.retries import (
     RetryConfig,
     format_retry_message,
     get_retry_info,
