@@ -21,6 +21,7 @@ dependencies = [
   "python-slugify>=8.0.4",
   "rich>=14.2.0",
   "shellingham>=1.5.4",
+  "tenacity>=9.0.0",
   "typer>=0.20.0",
 ]
 

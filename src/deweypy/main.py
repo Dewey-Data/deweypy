@@ -176,6 +176,12 @@ def download(
     partition_key_after: str | None = typer.Option(None, help="Partition key after."),
     partition_key_before: str | None = typer.Option(None, help="Partition key before."),
     skip_existing: bool = typer.Option(True, help="Skip existing files?"),
+    max_retries: int = typer.Option(
+        10,
+        "--max-retries",
+        min=1,
+        help="Maximum number of retry attempts for failed downloads.",
+    ),
 ):
     rprint("Hello from `download`!")
 
@@ -184,6 +190,7 @@ def download(
         partition_key_after=partition_key_after,
         partition_key_before=partition_key_before,
         skip_existing=skip_existing,
+        max_retries=max_retries,
     )
     downloader.download()
 
@@ -202,6 +209,12 @@ def speedy_download(
     ),
     folder_name: str | None = typer.Option(
         None, help="Custom folder name for the download."
+    ),
+    max_retries: int = typer.Option(
+        10,
+        "--max-retries",
+        min=1,
+        help="Maximum number of retry attempts for failed downloads.",
     ),
 ):
     rprint("Hello from `speedy_download`!")
@@ -230,6 +243,7 @@ def speedy_download(
         num_workers=parsed_num_workers,
         buffer_chunk_size=parsed_buffer_chunk_size,
         folder_name=folder_name,
+        max_retries=max_retries,
     )
 
 

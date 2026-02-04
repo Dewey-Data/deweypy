@@ -35,6 +35,7 @@ def run_speedy_download(
     num_workers: int | Literal["auto"] | None = "auto",
     buffer_chunk_size: int | Literal["auto"] | None = "auto",
     folder_name: str | None = None,
+    max_retries: int | None = None,
 ):
     found_winloop: bool = False
     found_uvloop: bool = False
@@ -76,6 +77,7 @@ def run_speedy_download(
             num_workers=num_workers,
             buffer_chunk_size=buffer_chunk_size,
             folder_name=folder_name,
+            max_retries=max_retries,
         )
         await downloader.download_all()
 
