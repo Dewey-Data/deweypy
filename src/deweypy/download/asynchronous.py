@@ -53,6 +53,12 @@ from rich.progress import (
 
 from deweypy.context import MainContext, main_context
 from deweypy.download.errors import potentially_augment_error
+from deweypy.download.retry import (
+    RetryConfig,
+    async_retrying,
+    format_retry_message,
+    get_retry_info,
+)
 from deweypy.download.types import (
     APIMethod,
     DescribedDatasetDict,
@@ -248,6 +254,7 @@ WorkQueueType: TypeAlias = asyncio.Queue[WorkQueueRecordType]
 class AsyncDatasetDownloader:
     DEFAULT_NUM_WORKERS: ClassVar[int | Literal["auto"]] = 8
     DEFAULT_BUFFER_CHUNK_SIZE: ClassVar[int] = 131_072  # ~128KB
+    DEFAULT_MAX_RETRIES: ClassVar[int] = 10
 
     def __init__(
         self,
@@ -259,6 +266,7 @@ class AsyncDatasetDownloader:
         num_workers: int | Literal["auto"] | None = None,
         buffer_chunk_size: int | Literal["auto"] | None = None,
         folder_name: str | None = None,
+        max_retries: int | None = None,
     ):
         self.identifier = identifier
         self.partition_key_after = partition_key_after
@@ -278,6 +286,12 @@ class AsyncDatasetDownloader:
         self._num_workers = (
             self.DEFAULT_NUM_WORKERS if num_workers is None else num_workers
         )
+
+        # Configure retry behavior.
+        _max_retries = (
+            max_retries if max_retries is not None else self.DEFAULT_MAX_RETRIES
+        )
+        self.retry_config = RetryConfig(max_attempts=_max_retries)
 
     @property
     def context(self) -> MainContext:
@@ -549,15 +563,29 @@ class AsyncDatasetDownloader:
             await log_queue.put(Log(f"Fetching page {current_page_number}..."))
 
             next_query_params = query_params | {"page": current_page_number}
-            # TODO (Dewey Team): Make sure this is wrapped with retries and exponential
-            # backoff, etc.
-            data_response = await async_api_request(
-                "GET",
-                f"{self.base_url}/files",
-                params=next_query_params,
-                timeout=httpx.Timeout(30.0),
-                client=client,
-            )
+
+            # Fetch the files page with retry logic.
+            data_response: httpx.Response | None = None
+            async for attempt in async_retrying(self.retry_config):
+                with attempt:
+                    attempt_num, prev_exception = get_retry_info(attempt.retry_state)
+                    if attempt_num > 1:
+                        await log_queue.put(
+                            Log(
+                                f"[yellow]Retry {attempt_num}/{self.retry_config.max_attempts} "
+                                f"fetching page {current_page_number}: "
+                                f"{type(prev_exception).__name__ if prev_exception else 'Unknown'}[/yellow]"
+                            )
+                        )
+                    data_response = await async_api_request(
+                        "GET",
+                        f"{self.base_url}/files",
+                        params=next_query_params,
+                        timeout=httpx.Timeout(30.0),
+                        client=client,
+                    )
+
+            assert data_response is not None, "Expected response after retry loop"
             response_data = data_response.json()
             batch = cast(GetFilesDict, response_data)
 
@@ -701,119 +729,167 @@ class AsyncDatasetDownloader:
                 )
 
         # Check if this is already a direct download URL (no redirect needed).
+        final_url: str
         if link.startswith("https://downloads.deweydata.io/"):
             final_url = link
         else:
-            # TODO (Dewey Team): Make sure this is wrapped with retries and exponential
-            # backoff, etc.
-            try:
-                dewey_response = await client_for_dewey.get(
-                    link,
-                    follow_redirects=False,
-                    timeout=httpx.Timeout(60.0),
-                )
-                status_code = dewey_response.status_code
-                if not status_code or status_code < 200 or status_code >= 400:
-                    try:
-                        dewey_response.raise_for_status()
-                    except Exception as e:
-                        potentially_augment_error(e)
-                        raise
-            except Exception as e:
-                raise RuntimeError(
-                    f"Error downloading {original_file_name}: {e}"
-                ) from e
-            if dewey_response.status_code not in (301, 302):
-                raise RuntimeError(
-                    "Expecting a 301 or 302 redirect from Dewey at the time of writing."
-                )
-            final_url = dewey_response.headers.get("Location")
-            if not final_url or not isinstance(final_url, str):
-                raise RuntimeError(
-                    f"Expected a string URL for the final URL, got {final_url}."
-                )
-
-        file_amount_advanced_here: int = 0
-        total_amount_advanced_here: int = 0
-        has_progress_started: bool = False
-
-        try:
-            # TODO (Dewey Team): Make sure this is wrapped with retries and exponential
-            # backoff, etc.
-            async with (
-                client_for_file_platform.stream(
-                    "GET",
-                    final_url,
-                    follow_redirects=True,
-                    timeout=httpx.Timeout(300.0),
-                ) as r,
-                aiofiles.open(new_file_path, "wb") as f,
-            ):
-                async for raw_bytes in r.aiter_bytes(chunk_size=self.buffer_chunk_size):
-                    bytes_downloaded_so_far = r.num_bytes_downloaded
-
-                    if not has_progress_started:
-                        total_file_size_bytes_to_use_here: int = file_size_bytes
-                        # Get the Content-Length header from the response.
-                        if raw_content_length := r.headers.get("Content-Length"):
-                            try:
-                                total_file_size_bytes_to_use_here = int(
-                                    raw_content_length
-                                )
-                            except (TypeError, ValueError, OverflowError):
-                                pass
+            # Fetch the redirect URL with retry logic.
+            _resolved_url: str | None = None
+            async for attempt in async_retrying(self.retry_config):
+                with attempt:
+                    attempt_num, prev_exception = get_retry_info(attempt.retry_state)
+                    if attempt_num > 1:
                         await log_queue.put(
-                            AddProgress(
-                                key=queue_key,
-                                message=f"Downloading {original_file_name}",
-                                total=total_file_size_bytes_to_use_here,
-                                filename=original_file_name,
+                            Log(
+                                format_retry_message(
+                                    attempt=attempt_num,
+                                    max_attempts=self.retry_config.max_attempts,
+                                    file_name=original_file_name,
+                                    exception=prev_exception,
+                                    page_num=page_num,
+                                    record_num=record_num,
+                                )
                             )
                         )
-                        has_progress_started = True
+                    try:
+                        dewey_response = await client_for_dewey.get(
+                            link,
+                            follow_redirects=False,
+                            timeout=httpx.Timeout(60.0),
+                        )
+                        status_code = dewey_response.status_code
+                        if not status_code or status_code < 200 or status_code >= 400:
+                            try:
+                                dewey_response.raise_for_status()
+                            except Exception as e:
+                                potentially_augment_error(e)
+                                raise
+                    except Exception as e:
+                        raise RuntimeError(
+                            f"Error downloading {original_file_name}: {e}"
+                        ) from e
+                    if dewey_response.status_code not in (301, 302):
+                        raise RuntimeError(
+                            "Expecting a 301 or 302 redirect from Dewey at the time of writing."
+                        )
+                    _resolved_url = dewey_response.headers.get("Location")
+                    if not _resolved_url or not isinstance(_resolved_url, str):
+                        raise RuntimeError(
+                            f"Expected a string URL for the final URL, got {_resolved_url}."
+                        )
 
-                    await f.write(raw_bytes)
+            assert _resolved_url is not None, "Expected URL after retry loop"
+            final_url = _resolved_url
 
-                    file_advanced: int = (
-                        bytes_downloaded_so_far - file_amount_advanced_here
-                    )
+        # Download the file with retry logic.
+        async for attempt in async_retrying(self.retry_config):
+            # Reset progress tracking for each attempt.
+            file_amount_advanced_here: int = 0
+            total_amount_advanced_here: int = 0
+            has_progress_started: bool = False
+
+            with attempt:
+                attempt_num, prev_exception = get_retry_info(attempt.retry_state)
+                if attempt_num > 1:
+                    # Log retry message.
                     await log_queue.put(
-                        UpdateProgress(key=queue_key, advance=file_advanced)
+                        Log(
+                            format_retry_message(
+                                attempt=attempt_num,
+                                max_attempts=self.retry_config.max_attempts,
+                                file_name=original_file_name,
+                                exception=prev_exception,
+                                page_num=page_num,
+                                record_num=record_num,
+                            )
+                        )
                     )
-                    file_amount_advanced_here += file_advanced
+                    # Delete any partial file from the previous attempt.
+                    try:
+                        if await new_file_path.exists():
+                            await new_file_path.unlink()
+                    except FileNotFoundError:
+                        pass
 
-                    total_advanced: int = (
-                        bytes_downloaded_so_far - total_amount_advanced_here
-                    )
+                try:
+                    async with (
+                        client_for_file_platform.stream(
+                            "GET",
+                            final_url,
+                            follow_redirects=True,
+                            timeout=httpx.Timeout(300.0),
+                        ) as r,
+                        aiofiles.open(new_file_path, "wb") as f,
+                    ):
+                        async for raw_bytes in r.aiter_bytes(
+                            chunk_size=self.buffer_chunk_size
+                        ):
+                            bytes_downloaded_so_far = r.num_bytes_downloaded
+
+                            if not has_progress_started:
+                                total_file_size_bytes_to_use_here: int = file_size_bytes
+                                # Get the Content-Length header from the response.
+                                if raw_content_length := r.headers.get(
+                                    "Content-Length"
+                                ):
+                                    try:
+                                        total_file_size_bytes_to_use_here = int(
+                                            raw_content_length
+                                        )
+                                    except (TypeError, ValueError, OverflowError):
+                                        pass
+                                await log_queue.put(
+                                    AddProgress(
+                                        key=queue_key,
+                                        message=f"Downloading {original_file_name}",
+                                        total=total_file_size_bytes_to_use_here,
+                                        filename=original_file_name,
+                                    )
+                                )
+                                has_progress_started = True
+
+                            await f.write(raw_bytes)
+
+                            file_advanced: int = (
+                                bytes_downloaded_so_far - file_amount_advanced_here
+                            )
+                            await log_queue.put(
+                                UpdateProgress(key=queue_key, advance=file_advanced)
+                            )
+                            file_amount_advanced_here += file_advanced
+
+                            total_advanced: int = (
+                                bytes_downloaded_so_far - total_amount_advanced_here
+                            )
+                            await log_queue.put(
+                                UpdateProgress(
+                                    key=overall_queue_key, advance=total_advanced
+                                )
+                            )
+                            total_amount_advanced_here += total_advanced
+                except Exception:
+                    # Roll back progress on failure.
+                    if has_progress_started:
+                        await log_queue.put(
+                            UpdateProgress(
+                                key=queue_key, advance=-1 * file_amount_advanced_here
+                            )
+                        )
+                        await log_queue.put(RemoveProgress(key=queue_key))
                     await log_queue.put(
-                        UpdateProgress(key=overall_queue_key, advance=total_advanced)
+                        UpdateProgress(
+                            key=overall_queue_key,
+                            advance=-1 * total_amount_advanced_here,
+                        )
                     )
-                    total_amount_advanced_here += total_advanced
-        except Exception as e:
-            await log_queue.put(
-                Log(f"[red]Error downloading {original_file_name}: {e}[/red]")
-            )
-            if has_progress_started:
-                await log_queue.put(
-                    UpdateProgress(
-                        key=queue_key, advance=-1 * file_amount_advanced_here
-                    )
-                )
-            await log_queue.put(
-                UpdateProgress(
-                    key=overall_queue_key, advance=-1 * total_amount_advanced_here
-                )
-            )
-            if has_progress_started:
-                await log_queue.put(RemoveProgress(key=queue_key))
-            # TODO (Dewey Team): Make sure other stuff is wrapped with retries and
-            # exponential backoff, etc.
-            raise RuntimeError(f"Error downloading {original_file_name}: {e}") from e
-        else:
-            page_fetch_counter[page_num].append(record_num)
-        finally:
-            if has_progress_started:
-                await log_queue.put(RemoveProgress(key=queue_key))
+                    # Re-raise to trigger retry.
+                    raise
+                else:
+                    # Success - mark as done.
+                    page_fetch_counter[page_num].append(record_num)
+                finally:
+                    if has_progress_started:
+                        await log_queue.put(RemoveProgress(key=queue_key))
 
         return DownloadSingleFileResult(
             original_file_name=original_file_name,
