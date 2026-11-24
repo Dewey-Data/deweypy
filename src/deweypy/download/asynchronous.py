@@ -65,6 +65,7 @@ from deweypy.download.types import (
     GetFilesDict,
     GetMetadataDict,
 )
+from deweypy.user_agent import USER_AGENT
 
 if TYPE_CHECKING:
     import ssl  # pragma: no cover
@@ -104,9 +105,7 @@ async def async_api_request(
     timeout_to_use = timeout if timeout is not None else httpx.Timeout(30.0)
     headers_to_use: dict[str, str] = {
         "Content-Type": "application/json",
-        # NOTE/TODO: Once we have this versioned, we can include more info on
-        # the User-Agent here.
-        "User-Agent": "deweypy/0.6.0",
+        "User-Agent": USER_AGENT,
         "X-API-Key": main_context.api_key,
         **(headers or {}),  # type: ignore[dict-item]
     }
@@ -165,9 +164,7 @@ def make_async_client(
 ) -> AsyncClientType:
     timeout_to_use = timeout if timeout is not None else httpx.Timeout(30.0)
     headers_to_use: dict[str, str] = {
-        # NOTE/TODO: Once we have this versioned, we can include more info on
-        # the User-Agent here.
-        "User-Agent": "deweypy/0.6.0",
+        "User-Agent": USER_AGENT,
         "X-API-Key": main_context.api_key,
         **(headers or {}),  # type: ignore[dict-item]
     }
