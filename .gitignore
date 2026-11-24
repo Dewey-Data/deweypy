@@ -40,3 +40,8 @@ notebook-examples/.ipynb_checkpoints/*
 
 # We use `AGENTS.md` instead of `CLAUDE.md`.
 CLAUDE.md
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/

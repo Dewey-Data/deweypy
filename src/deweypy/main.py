@@ -21,6 +21,7 @@ from deweypy.download import (
 )
 from deweypy.download.speed_testing import run_download_speed_test
 from deweypy.download.speedy import run_speedy_download
+from deweypy.user_agent import USER_AGENT
 
 _shared_api_key_option = typer.Option(
     None, "--api-key", help="Your Dewey API Key.", show_default=False
@@ -258,5 +259,7 @@ def speed_test(
 
     Uses a regular `httpx` `Client` (non-async), with full downloads (no streaming).
     """
-    with httpx.Client(http2=True, timeout=60.0) as client:
+    with httpx.Client(
+        http2=True, timeout=60.0, headers={"User-Agent": USER_AGENT}
+    ) as client:
         run_download_speed_test(client, url, num_downloads=n)

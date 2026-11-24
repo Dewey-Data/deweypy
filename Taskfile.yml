@@ -5,31 +5,31 @@ tasks:
   t:
     desc: Run tests with pytest
     cmds:
-      - pytest src
+      - pytest src tests
 
   # Run Tests With Coverage
   tc:
     desc: Run tests with coverage report
     cmds:
-      - pytest src --cov=src/e --cov-report=term-missing
+      - pytest src tests --cov=src/deweypy --cov-report=term-missing
 
   # Lint
   l:
     desc: Run ruff linter
     cmds:
-      - ruff check src
+      - ruff check src tests
 
   # Format
   f:
     desc: Format code with ruff
     cmds:
-      - ruff format src
+      - ruff format src tests
 
   # Lint and Fix
   lf:
     desc: Run ruff linter with auto-fix
     cmds:
-      - ruff check src --fix
+      - ruff check src tests --fix
 
   # Check (Lint + Tests)
   c:
