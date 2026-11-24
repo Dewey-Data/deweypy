@@ -45,11 +45,12 @@ def test_version_comes_from_package_metadata():
     assert deweypy.__version__ != user_agent.UNKNOWN_VERSION
 
 
-def test_user_agent_is_bare_deweypy_version():
-    assert user_agent.USER_AGENT == f"deweypy/{deweypy.__version__}"
+def test_user_agent_is_bare_deweypy_wire_version():
+    wire_version = user_agent.get_wire_version(deweypy.__version__)
+    assert user_agent.USER_AGENT == f"deweypy/{wire_version}"
     match = OLD_DEWEY_SERVER_PATTERN.fullmatch(user_agent.USER_AGENT)
     assert match is not None
-    assert match.group(1) == deweypy.__version__
+    assert match.group(1) == wire_version
 
 
 @pytest.mark.parametrize(
